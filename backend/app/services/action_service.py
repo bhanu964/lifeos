@@ -42,6 +42,8 @@ class ActionService:
 
     def _ensure_storage(self):
         """Load stored actions from ActionDB on startup."""
+        if self._actions:
+            return
         try:
             from app.models.user import ActionDB
             from app.services.db import get_db_session
@@ -136,7 +138,7 @@ class ActionService:
             if (
                 existing.uid == uid
                 and existing.idempotency_key == idempotency_key
-                and existing.status in [ActionStatus.STAGED, ActionStatus.COMPLETED]
+                and existing.status == ActionStatus.STAGED
             ):
                 logger.info("Returning existing action %s for idempotency key", existing.action_id)
                 return existing
