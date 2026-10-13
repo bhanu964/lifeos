@@ -135,7 +135,10 @@ class Settings(BaseSettings):
     )
 
     # Qdrant Cloud Vector Database Settings
-    qdrant_url: str = Field(default="", alias="QDRANT_URL")
+    qdrant_url: str = Field(
+        default="https://4c4bcef6-be8c-47f9-9414-b2336472ffdf.eu-west-1-0.aws.cloud.qdrant.io:6333",
+        alias="QDRANT_URL",
+    )
     qdrant_api_key: str = Field(default="", alias="QDRANT_API_KEY")
     qdrant_collection_name: str = Field(
         default="agentmemory_memories",
