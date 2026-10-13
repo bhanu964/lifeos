@@ -31,6 +31,11 @@ function resolveApiBaseUrl(): { url: string; error: string | null } {
     return { url: 'https://lifeos-2-zdux.onrender.com', error: null };
   }
 
+  // If running on localhost (dev or preview), route to local backend
+  if (typeof window !== 'undefined' && window.location.origin && (window.location.origin.includes('localhost') || window.location.origin.includes('127.0.0.1'))) {
+    return { url: 'http://localhost:8000', error: null };
+  }
+
   if (isDev) {
     // Safe default for local development only
     return { url: 'http://localhost:8000', error: null };
