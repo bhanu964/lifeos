@@ -83,8 +83,8 @@ _configured_origins = [
     if origin.strip()
 ]
 
-# Always permit all Vercel production and preview domains (*.vercel.app)
-_origin_regex = r"^https://.*\.vercel\.app$"
+# Always permit all Vercel domains (*.vercel.app) and ngrok tunnels
+_origin_regex = r"^(https://.*\.vercel\.app|https://.*\.ngrok-free\.(app|dev))$"
 _allowed_origins = list(set(_default_dev_origins + _configured_origins))
 
 app.add_middleware(
