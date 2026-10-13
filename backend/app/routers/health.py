@@ -7,6 +7,7 @@ router = APIRouter(tags=["Health"])
 
 
 @router.get("/health", summary="Health check")
+@router.get("/api/health", summary="Health check alias")
 async def health_check() -> Dict[str, Any]:
     """
     Health check endpoint returning service status, metadata,
