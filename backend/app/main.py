@@ -72,6 +72,7 @@ _default_dev_origins = [
     "http://127.0.0.1:5173",
     "http://127.0.0.1:5174",
     "http://127.0.0.1:3000",
+    "https://lifeos-pi-gules.vercel.app",
 ]
 _configured_origins = [
     origin.strip().rstrip("/")
@@ -79,12 +80,9 @@ _configured_origins = [
     if origin.strip()
 ]
 
-if settings.app_env.lower() == "production":
-    _allowed_origins = _configured_origins if _configured_origins else ["https://vercel.app"]
-    _origin_regex = r"^https://.*\.vercel\.app$"
-else:
-    _allowed_origins = list(set(_default_dev_origins + _configured_origins))
-    _origin_regex = None
+# Always permit all Vercel production and preview domains (*.vercel.app)
+_origin_regex = r"^https://.*\.vercel\.app$"
+_allowed_origins = list(set(_default_dev_origins + _configured_origins))
 
 app.add_middleware(
     CORSMiddleware,
