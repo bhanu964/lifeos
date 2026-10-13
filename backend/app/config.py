@@ -153,7 +153,7 @@ class Settings(BaseSettings):
 
     # Omi Voice & Webhook Settings
     omi_api_key: str = Field(
-        default="omi_dev_759db8d7b4b9ac764b7a05faf7b894b0",
+        default="omi_dev_27ad8a5d187a9b0b18ae7a137a1534a4",
         alias="OMI_API_KEY",
     )
 
