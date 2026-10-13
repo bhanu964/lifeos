@@ -64,6 +64,23 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({
     setTesting(true);
     setTestResult(null);
     try {
+      if (type === 'qdrant' && !useDefaultQdrant && qdrantUrl && qdrantApiKey) {
+        await api.saveIntegration('qdrant', {
+          qdrant_url: qdrantUrl,
+          qdrant_api_key: qdrantApiKey,
+          qdrant_collection_name: qdrantCollection,
+        });
+      } else if (type === 'lyzr' && !useDefaultLyzr && lyzrApiKey) {
+        await api.saveIntegration('lyzr', {
+          lyzr_api_key: lyzrApiKey,
+        });
+      } else if (type === 'telegram' && botToken) {
+        await api.saveIntegration('telegram', {
+          telegram_bot_token: botToken,
+          telegram_bot_username: botUsername,
+        });
+      }
+
       const res = await api.testIntegration(type);
       setTestResult({
         success: res.success,

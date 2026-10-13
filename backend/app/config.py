@@ -37,7 +37,10 @@ class Settings(BaseSettings):
     app_port: int = Field(default=8000, alias="APP_PORT")
 
     # Lyzr Agent Settings
-    lyzr_api_key: str = Field(default="", alias="LYZR_API_KEY")
+    lyzr_api_key: str = Field(
+        default="sk-default-2ZaEnu5aokyXeDJowyX1gv4aYweafbmz",
+        alias="LYZR_API_KEY",
+    )
     lyzr_api_url: str = Field(
         default="https://agent-prod.studio.lyzr.ai/v3/inference/chat/",
         alias="LYZR_API_URL"
@@ -58,7 +61,7 @@ class Settings(BaseSettings):
         default="6acdcd0f8a6a8741bd6df3df",
         alias="LYZR_MANAGER_AGENT_ID"
     )
-    lyzr_user_id: str = Field(default="demo-user@agentmemory.ai", alias="LYZR_USER_ID")
+    lyzr_user_id: str = Field(default="bhanurajaka1qaz@gmail.com", alias="LYZR_USER_ID")
     lyzr_tool_execute_url: str = Field(
         default="https://agent-prod.studio.lyzr.ai/v3/inference/tools/execute",
         alias="LYZR_TOOL_EXECUTE_URL",
@@ -102,7 +105,7 @@ class Settings(BaseSettings):
         alias="TELEGRAM_CREDENTIAL_ID",
     )
     telegram_chat_id: str = Field(
-        default="",
+        default="6574916645",
         alias="TELEGRAM_CHAT_ID",
     )
     telegram_bot_username: str = Field(
@@ -110,7 +113,7 @@ class Settings(BaseSettings):
         alias="TELEGRAM_BOT_USERNAME",
     )
     telegram_bot_token: str = Field(
-        default="",
+        default="8364330229:AAEnA_DKko8OzntedDX3OK8MWHH2BpuVbgU",
         alias="TELEGRAM_BOT_TOKEN",
     )
     public_base_url: str = Field(
@@ -122,7 +125,7 @@ class Settings(BaseSettings):
         alias="CORS_ALLOWED_ORIGINS",
     )
     jwt_secret_key: str = Field(
-        default="",
+        default="lifeos-super-secret-jwt-key-hackathon-2026",
         alias="JWT_SECRET_KEY",
     )
     encryption_key: str = Field(
@@ -139,14 +142,20 @@ class Settings(BaseSettings):
         default="https://4c4bcef6-be8c-47f9-9414-b2336472ffdf.eu-west-1-0.aws.cloud.qdrant.io:6333",
         alias="QDRANT_URL",
     )
-    qdrant_api_key: str = Field(default="", alias="QDRANT_API_KEY")
+    qdrant_api_key: str = Field(
+        default="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJhY2Nlc3MiOiJtIiwic3ViamVjdCI6ImFwaS1rZXk6OTczMmY5OWYtMzQ4NC00YTNlLTk3ODItMDg5NTllZDljZDM0In0.i4kiVjsw7YuBHKkELxNx7UqWCpiNRsN0PxqbqpQ6W5E",
+        alias="QDRANT_API_KEY",
+    )
     qdrant_collection_name: str = Field(
         default="agentmemory_memories",
         alias="QDRANT_COLLECTION_NAME"
     )
 
     # Omi Voice & Webhook Settings
-    omi_api_key: str = Field(default="", alias="OMI_API_KEY")
+    omi_api_key: str = Field(
+        default="omi_dev_759db8d7b4b9ac764b7a05faf7b894b0",
+        alias="OMI_API_KEY",
+    )
 
     # FastEmbed Settings (Fixed to BAAI/bge-small-en-v1.5, 384 dims)
     embedding_model_name: str = "BAAI/bge-small-en-v1.5"
