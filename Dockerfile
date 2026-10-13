@@ -1,6 +1,14 @@
-FROM python:3.12-slim
+# Stage 1: Build Frontend SPA
+FROM node:18-alpine AS frontend-builder
+WORKDIR /app
+COPY frontend/package*.json ./
+RUN npm install
+COPY frontend/ ./
+ENV VITE_API_BASE_URL=""
+RUN npm run build
 
-# Set working directory
+# Stage 2: Production Python Backend + Embedded Frontend
+FROM python:3.12-slim
 WORKDIR /app
 
 # Set environment variables
@@ -22,6 +30,9 @@ RUN pip install --no-cache-dir --upgrade pip && \
 # Copy backend application source code and data
 COPY backend/app/ ./app/
 COPY backend/data/ ./data/
+
+# Copy built frontend SPA assets from Stage 1 into /app/static
+COPY --from=frontend-builder /app/dist /app/static
 
 # Create persistent storage directory
 RUN mkdir -p /app/data

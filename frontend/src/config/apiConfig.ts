@@ -21,6 +21,11 @@ function resolveApiBaseUrl(): { url: string; error: string | null } {
     return { url: normalized, error: null };
   }
 
+  // If running in browser and served from same host (e.g. Render all-in-one container)
+  if (typeof window !== 'undefined' && window.location.origin && !window.location.origin.includes('localhost') && !window.location.origin.includes('vercel.app')) {
+    return { url: window.location.origin, error: null };
+  }
+
   if (isDev) {
     // Safe default for local development only
     return { url: 'http://localhost:8000', error: null };
@@ -29,7 +34,7 @@ function resolveApiBaseUrl(): { url: string; error: string | null } {
   // Production without VITE_API_BASE_URL
   const errorMsg =
     'CRITICAL CONFIGURATION ERROR: VITE_API_BASE_URL is not configured in this production build. ' +
-    'Please set VITE_API_BASE_URL to your deployed backend URL (e.g. https://your-backend.up.railway.app) in your Vercel Project Settings.';
+    'Please set VITE_API_BASE_URL to your deployed backend URL in your Vercel Project Settings.';
   
   return {
     url: '',

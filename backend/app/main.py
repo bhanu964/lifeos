@@ -1,7 +1,10 @@
 from contextlib import asynccontextmanager
 import logging
-from fastapi import FastAPI
+from pathlib import Path
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse
+from fastapi.staticfiles import StaticFiles
 
 from app.config import settings
 from app.routers import (
@@ -103,11 +106,40 @@ app.include_router(auth_router)
 app.include_router(integrations_router)
 
 
-@app.get("/", summary="Root endpoint")
-async def root():
-    return {
-        "message": "Welcome to AgentMemory AI API",
-        "docs": "/docs",
-        "health": "/health",
-        "version": settings.app_version,
-    }
+STATIC_DIR = Path("/app/static")
+if not STATIC_DIR.exists():
+    STATIC_DIR = Path(__file__).resolve().parent.parent.parent / "frontend" / "dist"
+
+if STATIC_DIR.exists() and (STATIC_DIR / "index.html").exists():
+    if (STATIC_DIR / "assets").exists():
+        app.mount("/assets", StaticFiles(directory=str(STATIC_DIR / "assets")), name="assets")
+
+    @app.get("/", summary="Root endpoint or SPA entrypoint")
+    async def root_handler(request: Request):
+        accept = request.headers.get("accept", "")
+        if "text/html" in accept:
+            return FileResponse(STATIC_DIR / "index.html")
+        return {
+            "message": "Welcome to AgentMemory AI API",
+            "docs": "/docs",
+            "health": "/health",
+            "version": settings.app_version,
+        }
+
+    @app.get("/{full_path:path}")
+    async def serve_spa(full_path: str):
+        if full_path.startswith("api/") or full_path.startswith("omi/") or full_path in ["health", "docs", "openapi.json"]:
+            raise HTTPException(status_code=404, detail="Not Found")
+        target = STATIC_DIR / full_path
+        if target.is_file():
+            return FileResponse(target)
+        return FileResponse(STATIC_DIR / "index.html")
+else:
+    @app.get("/", summary="Root endpoint")
+    async def root():
+        return {
+            "message": "Welcome to AgentMemory AI API",
+            "docs": "/docs",
+            "health": "/health",
+            "version": settings.app_version,
+        }
