@@ -5,6 +5,18 @@
   "framework": "vite",
   "rewrites": [
     {
+      "source": "/api/(.*)",
+      "destination": "https://lifeos-2-zdux.onrender.com/api/$1"
+    },
+    {
+      "source": "/omi/(.*)",
+      "destination": "https://lifeos-2-zdux.onrender.com/omi/$1"
+    },
+    {
+      "source": "/health",
+      "destination": "https://lifeos-2-zdux.onrender.com/health"
+    },
+    {
       "source": "/(.*)",
       "destination": "/index.html"
     }

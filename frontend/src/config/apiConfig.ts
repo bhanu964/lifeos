@@ -26,19 +26,19 @@ function resolveApiBaseUrl(): { url: string; error: string | null } {
     return { url: window.location.origin, error: null };
   }
 
+  // If running on Vercel preview/production, route to live Render backend
+  if (typeof window !== 'undefined' && window.location.origin && window.location.origin.includes('vercel.app')) {
+    return { url: 'https://lifeos-2-zdux.onrender.com', error: null };
+  }
+
   if (isDev) {
     // Safe default for local development only
     return { url: 'http://localhost:8000', error: null };
   }
 
-  // Production without VITE_API_BASE_URL
-  const errorMsg =
-    'CRITICAL CONFIGURATION ERROR: VITE_API_BASE_URL is not configured in this production build. ' +
-    'Please set VITE_API_BASE_URL to your deployed backend URL in your Vercel Project Settings.';
-  
   return {
-    url: '',
-    error: errorMsg,
+    url: 'https://lifeos-2-zdux.onrender.com',
+    error: null,
   };
 }
 

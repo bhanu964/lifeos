@@ -303,17 +303,30 @@ class WorkflowService:
             await self.publish_event("stage_changed", workflow, {"node": "memory_retrieved"})
 
             t0 = datetime.now(timezone.utc)
-            retrieved = await self.memory.search_memories(
-                uid=uid,
-                query=transcript,
-                limit=5,
-                score_threshold=0.20,
-            )
+            retrieved = []
+            try:
+                retrieved = await asyncio.wait_for(
+                    self.memory.search_memories(
+                        uid=uid,
+                        query=transcript,
+                        limit=5,
+                        score_threshold=0.20,
+                    ),
+                    timeout=10.0,
+                )
+            except Exception as mem_err:
+                logger.warning("Memory retrieval warning for workflow %s: %s", workflow_id, mem_err)
+                retrieved = []
+
             dur_ms = int((datetime.now(timezone.utc) - t0).total_seconds() * 1000)
             node_mr.duration_ms = dur_ms
             node_mr.state = NodeState.COMPLETED
             node_mr.end_time = datetime.now(timezone.utc).isoformat()
-            node_mr.summary = f"Retrieved {len(retrieved)} relevant personal memories from Qdrant"
+            node_mr.summary = (
+                f"Retrieved {len(retrieved)} relevant personal memories from Qdrant"
+                if retrieved
+                else "Completed semantic memory check (0 matching prior memories)"
+            )
             node_mr.details = {
                 "count": len(retrieved),
                 "memories": [{"id": m.id, "content": m.content[:100], "score": m.score} for m in retrieved],
@@ -712,6 +725,11 @@ INSTRUCTIONS:
             logger.error("Error finalizing workflow %s: %s", workflow.workflow_id, exc)
             workflow.status = WorkflowStatus.FAILED
             workflow.error_details = str(exc)
+            for node in workflow.nodes.values():
+                if node.state == NodeState.RUNNING:
+                    node.state = NodeState.FAILED
+                    node.error = str(exc)
+                    node.summary = f"Stage error: {str(exc)}"
             self._persist_to_disk()
             await self.publish_event("workflow_failed", workflow, {"error": str(exc)})
 

@@ -81,6 +81,10 @@ export const LivePipelineObservabilityView: React.FC<LivePipelineObservabilityVi
       setSseConnected(true);
     };
 
+    es.addEventListener('ping', () => {
+      setSseConnected(true);
+    });
+
     es.addEventListener('message', (event) => {
       try {
         const payload = JSON.parse(event.data);
@@ -100,7 +104,13 @@ export const LivePipelineObservabilityView: React.FC<LivePipelineObservabilityVi
       setSseConnected(false);
     };
 
+    // Resilient fallback polling every 2.5s for live workflow execution
+    const pollInterval = setInterval(() => {
+      fetchWorkflows();
+    }, 2500);
+
     return () => {
+      clearInterval(pollInterval);
       es.close();
       eventSourceRef.current = null;
     };
