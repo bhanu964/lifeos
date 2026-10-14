@@ -543,6 +543,74 @@ class LyzrService:
         )
         return res.get("result", {})
 
+    def _extract_messages_list(self, res_data: Any) -> List[Dict[str, Any]]:
+        """Safely extracts messages list across diverse Composio/Google payload structures."""
+        if isinstance(res_data, list):
+            return [m for m in res_data if isinstance(m, dict)]
+        if not isinstance(res_data, dict):
+            return []
+
+        candidates = [
+            res_data.get("data", {}).get("response_data", {}).get("messages")
+            if isinstance(res_data.get("data"), dict) and isinstance(res_data.get("data", {}).get("response_data"), dict)
+            else None,
+            res_data.get("data", {}).get("messages") if isinstance(res_data.get("data"), dict) else None,
+            res_data.get("response_data", {}).get("messages") if isinstance(res_data.get("response_data"), dict) else None,
+            res_data.get("messages"),
+            res_data.get("data", {}).get("response_data", {}).get("items")
+            if isinstance(res_data.get("data"), dict) and isinstance(res_data.get("data", {}).get("response_data"), dict)
+            else None,
+            res_data.get("data", {}).get("items") if isinstance(res_data.get("data"), dict) else None,
+            res_data.get("items"),
+            res_data.get("data") if isinstance(res_data.get("data"), list) else None,
+            res_data.get("response_data") if isinstance(res_data.get("response_data"), list) else None,
+        ]
+        for c in candidates:
+            if isinstance(c, list):
+                return [m for m in c if isinstance(m, dict)]
+        return []
+
+    async def get_email_message(
+        self,
+        message_id: str,
+        user_id: str = "me",
+        credential_id: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """
+        Retrieves detailed metadata, subject, and snippet for an email message.
+        """
+        if self.is_preconfigured and not credential_id:
+            raise LyzrAPIError(
+                "Gmail is completely disabled in Preconfigured Lyzr mode to protect account privacy.",
+                status_code=403,
+            )
+
+        effective_cred = credential_id
+        tool_cfg: Dict[str, Any] = {
+            "tool_name": "gmail",
+            "tool_source": "composio",
+            "action_names": ["GMAIL_GET_MESSAGE"],
+            "provider_uuid": settings.gmail_provider_uuid,
+            "persist_auth": True,
+        }
+        if effective_cred:
+            tool_cfg["credential_id"] = effective_cred
+
+        tool_config = [tool_cfg]
+        arguments: Dict[str, Any] = {
+            "userId": user_id,
+            "user_id": user_id,
+            "id": message_id,
+            "message_id": message_id,
+        }
+        res = await self.execute_tool(
+            tool_name="GMAIL_GET_MESSAGE",
+            tool_configs=tool_config,
+            arguments=arguments,
+            agent_id=self.agent_id,
+        )
+        return res.get("result", {})
+
     async def list_recent_emails(
         self,
         hours: int = 24,
@@ -582,10 +650,15 @@ class LyzrService:
             q_parts.append(query)
         q = " ".join(q_parts) if q_parts else "newer_than:1d"
 
+        # Pass dual-style parameters for robust schema compatibility across Composio versions
         arguments: Dict[str, Any] = {
+            "userId": user_id,
             "user_id": user_id,
+            "q": q,
             "query": q,
+            "maxResults": max_results,
             "max_results": max_results,
+            "include_payload": True,
         }
         res = await self.execute_tool(
             tool_name="GMAIL_LIST_MESSAGES",
@@ -594,16 +667,56 @@ class LyzrService:
             agent_id=self.agent_id,
         )
         res_data = res.get("result", {})
-        if isinstance(res_data, dict):
-            data_field = res_data.get("data", {})
-            if isinstance(data_field, dict):
-                return data_field.get("messages", []) or data_field.get("items", []) or []
-            elif isinstance(data_field, list):
-                return data_field
-            return res_data.get("messages", []) or res_data.get("items", []) or []
-        elif isinstance(res_data, list):
-            return res_data
-        return []
+        messages = self._extract_messages_list(res_data)
+
+        # Fallback: if newer_than query returned 0 messages, try fetching recent inbox messages without newer_than
+        if not messages and q_parts:
+            fallback_args: Dict[str, Any] = {
+                "userId": user_id,
+                "user_id": user_id,
+                "maxResults": max_results,
+                "max_results": max_results,
+                "include_payload": True,
+            }
+            if query:
+                fallback_args["q"] = query
+                fallback_args["query"] = query
+            try:
+                res_fb = await self.execute_tool(
+                    tool_name="GMAIL_LIST_MESSAGES",
+                    tool_configs=tool_config,
+                    arguments=fallback_args,
+                    agent_id=self.agent_id,
+                )
+                messages = self._extract_messages_list(res_fb.get("result", {}))
+            except Exception as fb_err:
+                logger.debug("Fallback email fetch without newer_than encountered: %s", fb_err)
+
+        # If messages are bare stubs (only id/threadId without subject, snippet, or payload), enrich the top items
+        enriched_messages: List[Dict[str, Any]] = []
+        for msg in messages[:max_results]:
+            if isinstance(msg, dict) and msg.get("id") and not (msg.get("snippet") or msg.get("subject") or msg.get("payload")):
+                try:
+                    detail = await self.get_email_message(
+                        message_id=msg["id"],
+                        user_id=user_id,
+                        credential_id=effective_cred,
+                    )
+                    data_obj = detail.get("data", {}) if isinstance(detail, dict) else {}
+                    res_detail = data_obj.get("response_data") if isinstance(data_obj, dict) else None
+                    if not res_detail and isinstance(detail, dict):
+                        res_detail = detail.get("response_data") or data_obj or detail
+                    if isinstance(res_detail, dict) and (res_detail.get("snippet") or res_detail.get("payload") or res_detail.get("subject")):
+                        enriched_messages.append(res_detail)
+                    else:
+                        enriched_messages.append(msg)
+                except Exception as enrich_err:
+                    logger.debug("Could not enrich message %s: %s", msg.get("id"), enrich_err)
+                    enriched_messages.append(msg)
+            else:
+                enriched_messages.append(msg)
+
+        return enriched_messages
 
     async def send_telegram_message(
         self,

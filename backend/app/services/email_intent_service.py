@@ -102,6 +102,132 @@ def is_calendar_inspect_intent(text: Optional[str]) -> bool:
     return any(p in t for p in inspect_phrases)
 
 
+def is_summarize_emails_intent(text: Optional[str]) -> bool:
+    """
+    Determines if the text requests summarizing or giving an overview/digest of emails.
+    """
+    if not text:
+        return False
+    t = text.lower().strip()
+    summary_words = ["summarize", "summarise", "summary", "overview", "digest", "brief me", "give me a summary"]
+    return any(w in t for w in summary_words)
+
+
+def extract_email_fields(email: Dict[str, Any]) -> Dict[str, str]:
+    """
+    Safely extracts subject, snippet, body, sender, date, and id from an email dict.
+    Supports both flat key formats and nested Google Gmail API payload.headers structures.
+    """
+    if not isinstance(email, dict):
+        return {"id": "", "subject": "", "snippet": "", "sender": "", "body": "", "date": ""}
+
+    subject = str(email.get("subject") or email.get("title") or "").strip()
+    snippet = str(email.get("snippet") or email.get("description") or "").strip()
+    sender = str(email.get("sender") or email.get("from") or "").strip()
+    body = str(email.get("body") or email.get("content") or "").strip()
+    date_str = str(email.get("date") or email.get("internalDate") or "").strip()
+    email_id = str(email.get("id") or email.get("message_id") or "")
+
+    # Check Google Gmail API payload.headers if subject, sender, or date are empty
+    payload = email.get("payload")
+    if isinstance(payload, dict):
+        headers = payload.get("headers")
+        if isinstance(headers, list):
+            for h in headers:
+                if isinstance(h, dict):
+                    name = str(h.get("name") or "").lower()
+                    val = str(h.get("value") or "").strip()
+                    if name == "subject" and not subject:
+                        subject = val
+                    elif name == "from" and not sender:
+                        sender = val
+                    elif name == "date" and not date_str:
+                        date_str = val
+        if not body:
+            p_body = payload.get("body")
+            if isinstance(p_body, dict) and p_body.get("data"):
+                body = str(p_body.get("data"))
+
+    return {
+        "id": email_id,
+        "subject": subject,
+        "snippet": snippet,
+        "sender": sender,
+        "body": body,
+        "date": date_str,
+    }
+
+
+def summarize_recent_emails(emails: List[Dict[str, Any]]) -> str:
+    """
+    Produces a concise, structured natural language summary of recent emails.
+    Formats sender, subject, and core context cleanly without any emojis.
+    """
+    if not emails:
+        return "No new emails received in the last 24 hours."
+
+    lines: List[str] = []
+    for idx, em in enumerate(emails, 1):
+        fields = extract_email_fields(em)
+        subj = fields["subject"] or "No Subject"
+        sndr = fields["sender"] or "Unknown Sender"
+        snip = fields["snippet"] or fields["body"][:150] or "No preview available"
+        clean_snip = " ".join(snip.split())
+        if len(clean_snip) > 160:
+            clean_snip = clean_snip[:157] + "..."
+        lines.append(f"{idx}. {subj} (From: {sndr})\n   Summary: {clean_snip}")
+
+    return "\n".join(lines)
+
+
+def format_telegram_execution_report(
+    transcript: str,
+    calendar_result: Optional[Dict[str, Any]] = None,
+    action_results: Optional[List[Any]] = None,
+) -> str:
+    """
+    Builds a structured, human-readable Telegram execution report.
+    Presents Spoken Request, Email Summary, Important Deadlines & Calendar, and Outcome.
+    Strictly contains zero emojis.
+    """
+    cal_res = calendar_result or {}
+    status_code = cal_res.get("status")
+
+    sections: List[str] = [
+        "LifeOS Execution Report",
+        f"Spoken Request:\n{transcript.strip()}",
+    ]
+
+    # 1. Email Summary Section (if emails were checked, summarized, or disabled)
+    email_summary = cal_res.get("email_summary")
+    if email_summary:
+        sections.append(f"Email Summary (Last 24 Hours):\n{email_summary.strip()}")
+    elif status_code == "GMAIL_DISABLED_IN_PRECONFIGURED_MODE":
+        sections.append(
+            "Email Summary:\n- Gmail is disabled in Preconfigured Lyzr mode to protect account privacy. Connect your own Lyzr credentials in Settings to enable Gmail."
+        )
+
+    # 2. Deadlines & Calendar Section
+    deadlines = cal_res.get("deadlines", [])
+    if deadlines:
+        dl_lines: List[str] = []
+        for dl in deadlines:
+            title = dl.get("title") or dl.get("summary") or "Deadline"
+            st = dl.get("start_datetime") or "Upcoming"
+            dl_lines.append(f"- {title} (Scheduled: {st})")
+        sections.append("Important Deadlines & Google Calendar:\n" + "\n".join(dl_lines))
+    elif status_code == "GMAIL_DISABLED_IN_PRECONFIGURED_MODE":
+        sections.append("Important Deadlines & Google Calendar:\n- No deadlines extracted (Gmail disabled in Preconfigured mode).")
+    elif "checked_emails" in cal_res:
+        sections.append("Important Deadlines & Google Calendar:\n- No actionable deadlines detected.")
+
+    # 3. Overall Outcome
+    outcome = cal_res.get("summary") or "Execution completed."
+    sections.append(f"Outcome:\n{outcome.strip()}")
+
+    return "\n\n".join(sections)
+
+
 def extract_deadlines_from_emails(
     emails: List[Dict[str, Any]],
     tz_name: str = DEFAULT_TIMEZONE,
@@ -129,10 +255,11 @@ def extract_deadlines_from_emails(
         if not isinstance(email, dict):
             continue
 
-        subject = (email.get("subject") or email.get("title") or "").strip()
-        snippet = (email.get("snippet") or email.get("description") or "").strip()
-        body = (email.get("body") or email.get("content") or "").strip()
-        email_id = email.get("id") or email.get("message_id") or ""
+        fields = extract_email_fields(email)
+        subject = fields["subject"]
+        snippet = fields["snippet"]
+        body = fields["body"]
+        email_id = fields["id"]
 
         combined = f"{subject}\n{snippet}\n{body}".strip()
         combined_lower = combined.lower()

@@ -11,11 +11,16 @@ from app.models.workflow import NodeState, WorkflowRecord, WorkflowStage, Workfl
 from app.services.action_service import ActionService
 from app.services.email_intent_service import (
     extract_deadlines_from_emails,
+    extract_email_fields,
+    format_telegram_execution_report,
     is_calendar_inspect_intent,
     is_calendar_schedule_intent,
     is_explicit_email_draft_intent,
     is_read_emails_intent,
+    is_summarize_emails_intent,
+    summarize_recent_emails,
 )
+from app.services.lyzr_service import LyzrService
 from app.services.workflow_service import WorkflowService
 
 client = TestClient(app)
@@ -459,4 +464,180 @@ async def test_preconfigured_lyzr_disables_gmail_read_and_draft(mock_all_service
         node_ta = updated_wf2.nodes["telegram_approval"]
         assert node_ta.state == NodeState.SKIPPED
         assert "disabled in Preconfigured Lyzr mode" in (node_ta.summary or "")
+
+
+def test_summarize_emails_intent_and_formatting():
+    """Verify intent recognition and zero-emoji structured summary generation."""
+    t1 = "Check my last twenty-four hours emails. Is there any important deadlines? Uh let me know. and summarize all the emails and send it through the Telegram."
+    assert is_summarize_emails_intent(t1) is True
+    assert is_summarize_emails_intent("What is the weather today?") is False
+
+    # Empty email list
+    assert "No new emails" in summarize_recent_emails([])
+
+    # Formatted email list
+    emails = [
+        {
+            "id": "e1",
+            "subject": "Hackathon Project Update",
+            "from": "organizer@stop-prompting.org",
+            "snippet": "Reminder that submissions close tomorrow at 5pm. Please finish your code.",
+        },
+        {
+            "id": "e2",
+            "subject": "Cloud Platform Billing",
+            "from": "billing@cloud.io",
+            "snippet": "Your monthly invoice is ready.",
+        },
+    ]
+    summary = summarize_recent_emails(emails)
+    assert "1. Hackathon Project Update (From: organizer@stop-prompting.org)" in summary
+    assert "2. Cloud Platform Billing (From: billing@cloud.io)" in summary
+    # Assert zero emojis
+    assert not any(ord(c) > 127999 for c in summary)
+
+
+def test_google_payload_headers_extraction():
+    """Verify extraction of subject, sender, and deadlines from Google API nested payload.headers format."""
+    google_api_msg = {
+        "id": "google-msg-123",
+        "snippet": "Hackathon submission deadline is tomorrow at 5:00 PM.",
+        "payload": {
+            "headers": [
+                {"name": "Subject", "value": "Fwd: Hackathon Submission Deadline"},
+                {"name": "From", "value": "lead@hackathon.org"},
+                {"name": "Date", "value": "Wed, 14 Oct 2026 12:00:00 +0000"},
+            ],
+            "body": {"data": "Body content"},
+        },
+    }
+    fields = extract_email_fields(google_api_msg)
+    assert fields["subject"] == "Fwd: Hackathon Submission Deadline"
+    assert fields["sender"] == "lead@hackathon.org"
+    assert "Hackathon submission deadline" in fields["snippet"]
+
+    deadlines = extract_deadlines_from_emails([google_api_msg], tz_name="Asia/Kolkata")
+    assert len(deadlines) == 1
+    assert "Hackathon Submission Deadline" in deadlines[0]["title"]
+    assert deadlines[0]["source_email_id"] == "google-msg-123"
+
+
+def test_format_telegram_execution_report():
+    """Verify structured human-readable Telegram report formatting without emojis."""
+    transcript = "Check my last twenty-four hours emails. Is there any important deadlines? Uh let me know. and summarize all the emails and send it through the Telegram."
+    cal_res = {
+        "status": "DEADLINES_SCHEDULED",
+        "checked_emails": 2,
+        "deadlines_count": 1,
+        "deadlines": [
+            {
+                "title": "Deadline: Hackathon Submission",
+                "start_datetime": "2026-10-15T17:00:00+05:30",
+            }
+        ],
+        "email_summary": "1. Hackathon Project Update (From: lead@hackathon.org)\n   Summary: Submissions close tomorrow.",
+        "summary": "Identified 1 deadline(s) in emails. Successfully scheduled to Google Calendar.",
+    }
+    report = format_telegram_execution_report(transcript=transcript, calendar_result=cal_res)
+    assert "LifeOS Execution Report" in report
+    assert "Spoken Request:" in report
+    assert "Email Summary (Last 24 Hours):" in report
+    assert "Hackathon Project Update" in report
+    assert "Important Deadlines & Google Calendar:" in report
+    assert "Deadline: Hackathon Submission (Scheduled: 2026-10-15T17:00:00+05:30)" in report
+    assert "Outcome:" in report
+    assert "Identified 1 deadline(s)" in report
+    # Strictly zero emojis
+    assert not any(ord(c) > 127999 for c in report)
+
+
+@pytest.mark.asyncio
+async def test_lyzr_service_list_recent_emails_parsing_and_fallback():
+    """Verify that list_recent_emails parses nested Composio structures and handles dual parameters."""
+    lyzr = LyzrService(api_key="mock-key", agent_id="mock-agent", is_preconfigured=False)
+
+    nested_composio_response = {
+        "tool_name": "GMAIL_LIST_MESSAGES",
+        "result": {
+            "successful": True,
+            "data": {
+                "response_data": {
+                    "messages": [
+                        {
+                            "id": "msg-nested-1",
+                            "subject": "Important Project Review",
+                            "from": "manager@company.com",
+                            "snippet": "Please review the document by tomorrow at 4pm.",
+                        }
+                    ]
+                }
+            },
+        },
+    }
+
+    with patch.object(lyzr, "execute_tool", new_callable=AsyncMock) as mock_exec:
+        mock_exec.return_value = nested_composio_response
+        emails = await lyzr.list_recent_emails(hours=24)
+        assert len(emails) == 1
+        assert emails[0]["id"] == "msg-nested-1"
+
+        # Verify dual-parameter arguments were supplied
+        call_args = mock_exec.call_args[1]["arguments"]
+        assert "q" in call_args
+        assert "query" in call_args
+        assert "maxResults" in call_args
+        assert "max_results" in call_args
+        assert "newer_than:1d" in call_args["q"]
+
+
+@pytest.mark.asyncio
+async def test_workflow_telegram_report_contains_email_summary(mock_all_services):
+    """
+    Verify end-to-end that when the user asks to check and summarize emails,
+    the Telegram message dispatched contains the email summary, deadlines, and outcome.
+    """
+    deps = mock_all_services
+    deps["list_emails"].return_value = [
+        {
+            "id": "email-dl-1",
+            "subject": "Hackathon Submission Deadline",
+            "from": "organizer@hackathon.org",
+            "snippet": "Reminder: Submission deadline is tomorrow at 5:00 PM.",
+        }
+    ]
+
+    wf_service = WorkflowService()
+    transcript = (
+        "Check my last twenty-four hours emails. Is there any important deadlines? Uh let me know. "
+        "and summarize all the emails and send it through the Telegram. "
+        "And if there are any important deadlines, update that in the Google Calendar."
+    )
+
+    with patch("app.services.telegram_service.TelegramService.get_effective_chat_id", return_value="12345678"):
+        wf = await wf_service.create_and_enqueue_workflow(
+            uid="usr_evaluator_007",
+            conversation_id=f"conv-{uuid.uuid4().hex[:8]}",
+            transcript=transcript,
+        )
+
+        await asyncio.sleep(0.15)
+        updated_wf = wf_service.get_workflow(wf.workflow_id)
+
+        assert updated_wf is not None
+        assert updated_wf.status == WorkflowStatus.COMPLETED
+
+        # Verify Telegram message was sent
+        assert deps["tg_msg"].await_count >= 1
+        tg_call_args = deps["tg_msg"].call_args[1]
+        sent_text = tg_call_args["text"]
+
+        assert "LifeOS Execution Report" in sent_text
+        assert "Email Summary (Last 24 Hours):" in sent_text
+        assert "Hackathon Submission Deadline" in sent_text
+        assert "organizer@hackathon.org" in sent_text
+        assert "Important Deadlines & Google Calendar:" in sent_text
+        assert "Outcome:" in sent_text
+        # Assert strictly zero emojis
+        assert not any(ord(c) > 127999 for c in sent_text)
+
 

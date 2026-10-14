@@ -29,10 +29,13 @@ from app.services.notification_service import NotificationService
 from app.services.telegram_service import TelegramService
 from app.services.email_intent_service import (
     extract_deadlines_from_emails,
+    format_telegram_execution_report,
     is_calendar_inspect_intent,
     is_calendar_schedule_intent,
     is_explicit_email_draft_intent,
     is_read_emails_intent,
+    is_summarize_emails_intent,
+    summarize_recent_emails,
 )
 from app.services.user_credentials_service import UserCredentialsService
 from app.utils.calendar_utils import get_day_rfc3339_boundaries, resolve_date_from_text
@@ -564,14 +567,28 @@ INSTRUCTIONS:
                         "status": "GMAIL_DISABLED_IN_PRECONFIGURED_MODE",
                         "checked_emails": 0,
                         "deadlines_count": 0,
+                        "email_summary": email_summary,
                         "summary": email_summary,
                     }
                 else:
                     try:
-                        recent_emails = await user_lyzr.list_recent_emails(hours=24)
+                        gmail_creds = UserCredentialsService.get_decrypted_credentials(uid, "gmail")
+                        cred_id = gmail_creds.get("gmail_credential_id") or gmail_creds.get("credential_id")
+                        email_kwargs = {"credential_id": cred_id} if cred_id else {}
+                        recent_emails = await user_lyzr.list_recent_emails(hours=24, **email_kwargs)
                         logger.info("Retrieved %d recent emails for user %s", len(recent_emails), uid)
+                        email_summary = summarize_recent_emails(recent_emails)
                         deadlines = extract_deadlines_from_emails(recent_emails, tz_name="Asia/Kolkata")
                         logger.info("Extracted %d deadline(s) from emails", len(deadlines))
+
+                        workflow.specialist_outputs.append(
+                            SpecialistOutput(
+                                agent_id=settings.lyzr_data_analyst_agent_id,
+                                agent_name="Data Analyst Specialist",
+                                role="Email Intelligence & Summarization",
+                                output=email_summary,
+                            )
+                        )
 
                         if deadlines and is_sched_deadlines:
                             for dl in deadlines:
@@ -606,6 +623,7 @@ INSTRUCTIONS:
                                 "checked_emails": len(recent_emails),
                                 "deadlines_count": len(deadlines),
                                 "deadlines": deadlines,
+                                "email_summary": email_summary,
                                 "summary": f"Identified {len(deadlines)} deadline(s) in emails. Successfully scheduled to Google Calendar.",
                             }
                         else:
@@ -614,6 +632,7 @@ INSTRUCTIONS:
                                 "checked_emails": len(recent_emails),
                                 "deadlines_count": 0,
                                 "deadlines": [],
+                                "email_summary": email_summary,
                                 "summary": f"Checked {len(recent_emails)} email(s) from the last 24 hours. No actionable deadlines found.",
                             }
                     except Exception as email_err:
@@ -882,11 +901,10 @@ INSTRUCTIONS:
 
                 if has_tg_req or user_tg_chat:
                     if user_tg_chat:
-                        cal_summary = workflow.calendar_result.get("summary") if workflow.calendar_result else "Execution completed."
-                        tg_text = (
-                            f"LifeOS Execution Report\n\n"
-                            f"Spoken Request: {workflow.transcript}\n"
-                            f"Outcome: {cal_summary}"
+                        tg_text = format_telegram_execution_report(
+                            transcript=workflow.transcript,
+                            calendar_result=workflow.calendar_result,
+                            action_results=workflow.action_results,
                         )
                         try:
                             tg_res = await user_telegram.send_message(chat_id=user_tg_chat, text=tg_text)
