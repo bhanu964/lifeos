@@ -102,6 +102,7 @@ app.add_middleware(
 # Mount routers
 app.include_router(health_router)
 app.include_router(omi_router)
+app.include_router(omi_router, prefix="/api")
 app.include_router(agents_router)
 app.include_router(memories_router)
 app.include_router(lifeos_router)
