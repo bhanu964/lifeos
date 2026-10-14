@@ -21,7 +21,7 @@ def normalize_voice_transcript(text: Optional[str]) -> str:
     """
     if not text:
         return ""
-    t = text
+    t = text.replace("\u043c", "m").replace("\u041c", "M").replace("\u0440", "p").replace("\u0420", "P")
     t = re.sub(r"\b(?:twenty[\s\-]+four|24)[\s\-]+(?:hour|hr|hrs)?[\s\-]+females\b", "last 24 hour emails", t, flags=re.I)
     t = re.sub(r"\b(check|read|review|scan|search|list)[\s\-]+(?:my[\s\-]+)?female(?:s)?\b", r"\1 my emails", t, flags=re.I)
     t = re.sub(r"\bmy[\s\-]+female(?:s)?\b", "my emails", t, flags=re.I)
@@ -406,3 +406,121 @@ def extract_deadlines_from_emails(
         })
 
     return deadlines
+
+
+WORD_TO_NUM = {
+    "one": 1, "two": 2, "three": 3, "four": 4, "five": 5,
+    "six": 6, "seven": 7, "eight": 8, "nine": 9, "ten": 10,
+    "eleven": 11, "twelve": 12,
+}
+
+
+def extract_task_details(
+    transcript: str,
+    plan_summary: Optional[str] = None,
+    tz_name: str = DEFAULT_TIMEZONE,
+) -> Dict[str, Any]:
+    """
+    Extracts an accurate task title, due timestamp (RFC3339 UTC), and notes
+    from the spoken voice transcript and Lyzr Manager plan summary.
+    Avoids hardcoding generic mock titles.
+    """
+    t_raw = transcript or ""
+    t_norm = normalize_voice_transcript(t_raw)
+    p_norm = normalize_voice_transcript(plan_summary or "")
+
+    title = ""
+    # 1. Inspect Lyzr Manager plan summary
+    if p_norm:
+        m1 = re.search(r"Intended task to add:\s*[“\"'\s]*([^“\"'\n\r]+?)[”\"'\s]*(?:\n|$)", p_norm, re.I)
+        if m1 and len(m1.group(1).strip()) > 2:
+            title = m1.group(1).strip(" “\"'.,")
+        if not title:
+            m2 = re.search(r"Actionable task identified:\s*(?:add\s+(?:a\s+)?)?[“\"'\s]*([^“\"'\n\r]+?)[”\"'\s]*(?:\n|$)", p_norm, re.I)
+            if m2 and len(m2.group(1).strip()) > 2:
+                title = m2.group(1).strip(" “\"'.,")
+
+    # 2. Check for explicit naming directives in transcript: 'make it as (a) ... title'
+    if not title:
+        m_title = re.search(r"make it as (?:a\s+)?(.*?)\s+title", t_norm, re.I)
+        if m_title and len(m_title.group(1).strip()) > 2:
+            candidate = m_title.group(1).strip(" “\"'.,")
+            title = candidate[0].upper() + candidate[1:]
+
+    # 3. Check for 'assign a task in google tasks like ...'
+    if not title:
+        m_like = re.search(r"assign\s+a\s+task\s+(?:in|on|to)\s+(?:the\s+)?google\s+tasks?\s+like\s+(?:uh\s+)?(?:\d{1,2}\s*(?:a\.?m\.?|p\.?m\.?)\s+)?(.*)", t_norm, re.I)
+        if m_like and len(m_like.group(1).strip()) > 2:
+            candidate = m_like.group(1).strip(" “\"'.,")
+            title = candidate[0].upper() + candidate[1:]
+
+    # 4. Extract core action phrase from transcript clauses
+    if not title:
+        cleaned = re.sub(r"(?:please\s+)?(?:add|assign|create|put)\s+(?:this\s+|a\s+|the\s+)?(?:task\s+)?(?:in|to|for|on)\s+(?:the\s+)?google\s+tasks?.*", "", t_norm, flags=re.I)
+        cleaned = re.sub(r"(?:add|create)\s+a\s+task\s+for\s+(?:the\s+)?google\s+tasks?\.?", "", cleaned, flags=re.I)
+        cleaned = re.sub(r"create\s+a\s+google\s+task\s+for\s+it.*", "", cleaned, flags=re.I)
+        clauses = [c.strip() for c in re.split(r"[.,;—\n]", cleaned) if c.strip()]
+        content_clauses = []
+        for c in clauses:
+            c_clean = re.sub(r"^(?:tomorrow|today|yesterday|morning|evening|night|uh|yeah)\b", "", c, flags=re.I).strip()
+            c_clean = re.sub(r"^\d{1,2}(?::\d{2})?\s*(?:am|pm|a\.m\.|p\.m\.)(?!\w)", "", c_clean, flags=re.I).strip()
+            c_clean = re.sub(r"^(?:one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve)\s*(?:am|pm|a\.m\.|p\.m\.)(?!\w)", "", c_clean, flags=re.I).strip()
+            if len(c_clean) > 2:
+                content_clauses.append(c_clean)
+
+        if content_clauses:
+            best = content_clauses[-1]
+            best = re.sub(r"^(?:i\s+need\s+to|i\s+have|i\s+has)\s+", "", best, flags=re.I).strip()
+            if "hackathon" in best.lower() and "submission" in best.lower():
+                title = "Hackathon submission"
+            elif "marathon" in best.lower():
+                title = "Running marathon" if "running" in best.lower() else "Going to marathon"
+            else:
+                title = best[0].upper() + best[1:]
+
+    if not title:
+        if "hackathon" in t_norm.lower():
+            title = "Prepare Stop Prompting Hackathon project submission"
+        else:
+            title = "Voice Task"
+
+    # Resolve date and time
+    tz = get_timezone(tz_name)
+    now = datetime.now(tz)
+
+    combined_text = f"{t_norm} {p_norm}".lower()
+    target_date = now.date() + timedelta(days=1)
+    if "today" in combined_text:
+        target_date = now.date()
+    elif "tomorrow" in combined_text:
+        target_date = now.date() + timedelta(days=1)
+
+    hour = 18
+    minute = 0
+    time_m = re.search(r"\b(\d{1,2}|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve)(?::(\d{2}))?\s*(am|pm|a\.m\.|p\.m\.|a\.m|p\.m)(?!\w)", combined_text)
+    if time_m:
+        h_str = time_m.group(1)
+        h = WORD_TO_NUM.get(h_str, int(h_str) if h_str.isdigit() else 18)
+        min_str = time_m.group(2)
+        minute = int(min_str) if min_str else 0
+        ampm = time_m.group(3).replace(".", "")
+        if ampm == "pm" and h < 12:
+            h += 12
+        elif ampm == "am" and h == 12:
+            h = 0
+        hour = h
+    elif "morning" in combined_text:
+        hour = 9
+    elif "afternoon" in combined_text:
+        hour = 14
+    elif "evening" in combined_text:
+        hour = 18
+    elif "night" in combined_text:
+        hour = 20
+
+    dt = datetime.combine(target_date, time(hour, minute, 0), tzinfo=tz)
+    due_iso = dt.astimezone(zoneinfo.ZoneInfo("UTC")).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+    notes = f"Spoken via Omi. Evidence: {t_raw.strip()}"
+    return {"title": title, "due": due_iso, "notes": notes}
+

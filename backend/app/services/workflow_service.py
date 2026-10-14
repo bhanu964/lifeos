@@ -29,6 +29,7 @@ from app.services.notification_service import NotificationService
 from app.services.telegram_service import TelegramService
 from app.services.email_intent_service import (
     extract_deadlines_from_emails,
+    extract_task_details,
     format_telegram_execution_report,
     is_calendar_inspect_intent,
     is_calendar_schedule_intent,
@@ -673,10 +674,18 @@ INSTRUCTIONS:
                     logger.error("Failed to execute calendar inspection action %s: %s", staged_cal.action_id, cal_err, exc_info=True)
                     workflow.error_details = f"Calendar inspection error: {cal_err}"
 
-            # 3. Autonomous Task Creation (e.g. Stop Prompting Hackathon project submission)
-            task_title = "Prepare Stop Prompting Hackathon project submission"
-            if ("hackathon" in transcript.lower() or has_task) and not (is_reading_emails and not any(k in transcript.lower() for k in ["task", "todo", "submission"])):
-                now = datetime.now(timezone.utc)
+            # 3. Autonomous Task Creation (Google Tasks)
+            has_explicit_task_req = any(k in transcript.lower() for k in ["task", "tasks", "todo", "assign a task", "add this in"]) or has_task
+            if ("hackathon" in transcript.lower() or has_explicit_task_req) and not (is_reading_emails and not any(k in transcript.lower() for k in ["task", "tasks", "todo", "submission"])):
+                task_details = extract_task_details(
+                    transcript=transcript,
+                    plan_summary=workflow.plan_summary,
+                    tz_name="Asia/Kolkata",
+                )
+                task_title = task_details["title"]
+                task_due = task_details.get("due")
+                task_notes = task_details.get("notes") or f"Spoken via Omi. Workflow ID: {workflow_id}\n\nEvidence: {transcript}"
+
                 staged_task = await user_actions.stage_action(
                     uid=uid,
                     action_type=ActionType.CREATE_TASK,
@@ -684,9 +693,10 @@ INSTRUCTIONS:
                     description=f"Auto-generated from voice request: {transcript[:140]}",
                     parameters={
                         "title": task_title,
-                        "notes": f"Spoken via Omi. Workflow ID: {workflow_id}\n\nEvidence: {transcript}",
-                        "due": (now.replace(hour=18, minute=0, second=0, microsecond=0)).isoformat(),
+                        "notes": task_notes,
+                        "due": task_due,
                         "workflow_id": workflow_id,
+                        "telegram_chat_id": user_telegram.get_effective_chat_id(uid),
                     },
                 )
                 workflow.action_ids.append(staged_task.action_id)
@@ -914,11 +924,13 @@ INSTRUCTIONS:
                                 workflow.telegram_delivery = {
                                     "status": "delivered",
                                     "message_id": msg_id,
+                                    "text": tg_text,
                                 }
                             else:
                                 workflow.telegram_delivery = {
                                     "status": "FAILED",
                                     "error_message": tg_res.get("error", "Telegram delivery failed"),
+                                    "text": tg_text,
                                 }
                         except Exception as tg_err:
                             logger.warning("Telegram notification failed: %s", tg_err)

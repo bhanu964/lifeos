@@ -73,7 +73,7 @@ class NotificationService:
             }.get(action.action_type, "Action")
 
             text = (
-                f"🚀 LifeOS: Your {type_label} was created and verified.\n\n"
+                f"LifeOS: Your {type_label} was created and verified.\n\n"
                 f"Title: {action.title}\n"
                 f"Status: Completed & Verified\n"
                 f"Action ID: {action.action_id}"
@@ -106,26 +106,36 @@ class NotificationService:
 
         try:
             logger.info("Sending Telegram notification for action %s to chat %s", action.action_id, target_chat_id)
-            res = await self.lyzr.send_telegram_message(text=text, chat_id=target_chat_id)
+            res = None
+            try:
+                res = await self.lyzr.send_telegram_message(text=text, chat_id=target_chat_id)
+            except Exception as lyzr_err:
+                logger.debug("Lyzr Telegram send failed (%s), falling back to TelegramService", lyzr_err)
+                if hasattr(self.telegram, "send_message"):
+                    res = await self.telegram.send_message(chat_id=target_chat_id, text=text)
+                else:
+                    raise
 
             is_successful = bool(
                 isinstance(res, dict)
                 and (
                     res.get("successful") is True
-                    or (isinstance(res.get("data"), dict) and res.get("data", {}).get("ok") is True)
+                    or res.get("ok") is True
+                    or (isinstance(res.get("data"), dict) and (res.get("data", {}).get("ok") is True or res.get("data", {}).get("successful") is True))
                 )
             )
 
             status = "delivered" if is_successful else "failed"
             error_msg = None
             if not is_successful:
-                error_msg = str(res.get("error") or res.get("data", {}).get("message") or "Delivery rejected")
+                error_msg = str(res.get("error") or (res.get("data", {}) if isinstance(res.get("data"), dict) else {}).get("message") or "Delivery rejected")
 
             msg_id = None
             if isinstance(res, dict):
+                msg_id = res.get("message_id")
                 data_field = res.get("data", {})
                 if isinstance(data_field, dict):
-                    msg_id = data_field.get("result", {}).get("message_id") or data_field.get("message_id")
+                    msg_id = msg_id or data_field.get("result", {}).get("message_id") or data_field.get("message_id")
 
             record = TelegramNotificationRecord(
                 notification_id=notification_id,
@@ -198,7 +208,7 @@ class NotificationService:
         )
 
         text = (
-            f"⚠️ LifeOS: Action execution failed.\n\n"
+            f"[LifeOS] Action execution failed.\n\n"
             f"Title: {action.title}\n"
             f"Status: Failed\n"
             f"Reason: {error_message[:200]}"

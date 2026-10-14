@@ -1,3 +1,4 @@
+import asyncio
 from datetime import datetime, timedelta, timezone
 import hashlib
 import json
@@ -244,7 +245,10 @@ class ActionService:
                 execution_result = raw_res
 
                 # Check result validity
-                if isinstance(raw_res, dict) and (raw_res.get("successful") or raw_res.get("data") or raw_res.get("id")):
+                if isinstance(raw_res, dict) and raw_res.get("successful") is False:
+                    err_msg = str(raw_res.get("error") or raw_res.get("message") or "Google Tasks API execution failed")
+                    raise ValueError(f"Task creation failed: {err_msg}")
+                elif isinstance(raw_res, dict) and (raw_res.get("successful") or raw_res.get("data") or raw_res.get("id")):
                     verified = True
                 else:
                     # Try inspecting nested structure
@@ -366,11 +370,19 @@ class ActionService:
                 "timestamp": now.isoformat(),
             }
 
-            created_memory = await self.memory.store_memory(
-                uid=uid,
-                content=memory_content,
-                metadata=memory_metadata,
-            )
+            mem_id = "mem-pending"
+            try:
+                created_memory = await asyncio.wait_for(
+                    self.memory.store_memory(
+                        uid=uid,
+                        content=memory_content,
+                        metadata=memory_metadata,
+                    ),
+                    timeout=5.0,
+                )
+                mem_id = created_memory.id
+            except Exception as mem_err:
+                logger.warning("Action %s memory recording bypassed or timed out: %s", action.action_id, mem_err)
 
             # Step 13: Telegram Notification Delivery for verified events
             notif_data = None
@@ -386,7 +398,7 @@ class ActionService:
                 message=f"Action '{action.title}' was successfully executed and verified.",
                 execution_result=execution_result,
                 verified=verified,
-                memory_id=created_memory.id,
+                memory_id=mem_id,
                 notification=notif_data,
             )
 

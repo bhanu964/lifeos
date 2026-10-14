@@ -12,6 +12,7 @@ from app.services.action_service import ActionService
 from app.services.email_intent_service import (
     extract_deadlines_from_emails,
     extract_email_fields,
+    extract_task_details,
     format_telegram_execution_report,
     is_calendar_inspect_intent,
     is_calendar_schedule_intent,
@@ -134,6 +135,7 @@ def mock_all_services():
          patch("app.services.lyzr_service.LyzrService.chat", new_callable=AsyncMock) as mock_chat, \
          patch("app.services.lyzr_service.LyzrService.list_recent_emails", new_callable=AsyncMock) as mock_list_emails, \
          patch("app.services.lyzr_service.LyzrService.create_calendar_event", new_callable=AsyncMock) as mock_create_event, \
+         patch("app.services.lyzr_service.LyzrService.create_task", new_callable=AsyncMock) as mock_create_task, \
          patch("app.services.lyzr_service.LyzrService.create_gmail_draft", new_callable=AsyncMock) as mock_create_draft, \
          patch("app.services.telegram_service.TelegramService.send_message", new_callable=AsyncMock) as mock_tg_msg, \
          patch("app.services.telegram_service.TelegramService.send_approval_request", new_callable=AsyncMock) as mock_tg_approval, \
@@ -145,6 +147,7 @@ def mock_all_services():
         mock_mem_store.return_value = AsyncMock(id="mem-12345", model_dump=lambda: {"id": "mem-12345"})
         mock_chat.return_value = {"response": "Plan formulated: Inspect emails, identify deadlines, schedule on calendar."}
         mock_create_event.return_value = {"successful": True, "data": {"id": "cal-evt-123"}}
+        mock_create_task.return_value = {"successful": True, "data": {"id": "task-mock-123"}}
         mock_create_draft.return_value = {"successful": True, "data": {"id": "draft-789"}}
         mock_tg_msg.return_value = {"ok": True, "message_id": 9999}
         mock_tg_approval.return_value = {"ok": True, "message_id": 8888}
@@ -153,6 +156,7 @@ def mock_all_services():
         yield {
             "list_emails": mock_list_emails,
             "create_event": mock_create_event,
+            "create_task": mock_create_task,
             "create_draft": mock_create_draft,
             "tg_msg": mock_tg_msg,
             "tg_approval": mock_tg_approval,
@@ -750,6 +754,88 @@ async def test_stage_9_qdrant_timeout_resilience(mock_all_services):
 
     node_cp = updated_wf.nodes["completed"]
     assert node_cp.state == NodeState.COMPLETED
+
+
+def test_extract_task_details_marathon_and_speech_artifacts():
+    """Verify accurate task title and due date extraction from spoken input and plan summary."""
+    # 1. Marathon voice request with plan summary
+    transcript1 = "Tomorrow six pм. Going to marathon, add this in the Google Tasks."
+    plan1 = (
+        "UNDERSTAND\n- User requested: Tomorrow six p.m. Going to marathon.\n"
+        "EXECUTE\n- Intended task to add: “Going to marathon”\n- Intended due time: tomorrow at 6 p.m."
+    )
+    details1 = extract_task_details(transcript1, plan_summary=plan1)
+    assert details1["title"] == "Going to marathon"
+    assert "Z" in details1["due"]
+    assert "Tomorrow six pм" in details1["notes"]
+
+    # 2. Marathon voice request without plan summary (pure transcript parsing with Cyrillic m)
+    details2 = extract_task_details(transcript1)
+    assert details2["title"] == "Going to marathon"
+    assert "Z" in details2["due"]
+
+    # 3. Explicit title directive: 'make it as a hackathon submission title'
+    transcript3 = "Add a task for the Google tasks. Uh today 9 p.m. Hakathon submission. Make it as a hackathon submission title and add the task in the Google Tasks."
+    details3 = extract_task_details(transcript3)
+    assert details3["title"] == "Hackathon submission"
+
+    # 4. Directive: 'assign a task in the Google tasks like uh nine a.m. running marathon'
+    transcript4 = "Tomorrow morning, nine AM I has the running marathon. So uh assign a task in the Google tasks like uh nine a.m. running marathon."
+    details4 = extract_task_details(transcript4)
+    assert "running marathon" in details4["title"].lower()
+
+
+@pytest.mark.asyncio
+async def test_workflow_executes_dynamic_marathon_task(mock_all_services):
+    """
+    Verify end-to-end that when the user speaks:
+    'Tomorrow six pм. Going to marathon, add this in the Google Tasks.'
+    the staged and executed action creates a task titled 'Going to marathon' (never hardcoded hackathon),
+    executes Google Tasks, and successfully completes without failing.
+    """
+    deps = mock_all_services
+    deps["chat"].return_value = {
+        "response": (
+            "UNDERSTAND\n- User requested: Tomorrow six p.m. Going to marathon.\n"
+            "PLAN\n- Create a Google Tasks entry for marathon reminder tomorrow at 6 p.m.\n"
+            "EXECUTE\n- Intended task to add: “Going to marathon”\n- Intended due time: tomorrow at 6 p.m."
+        )
+    }
+
+    wf_service = WorkflowService()
+    transcript = "Tomorrow six pм. Going to marathon, add this in the Google Tasks."
+
+    with patch("app.services.telegram_service.TelegramService.get_effective_chat_id", return_value="12345678"):
+        wf = await wf_service.create_and_enqueue_workflow(
+            uid="usr_evaluator_marathon",
+            conversation_id=f"conv-{uuid.uuid4().hex[:8]}",
+            transcript=transcript,
+        )
+
+        await asyncio.sleep(0.2)
+        updated_wf = wf_service.get_workflow(wf.workflow_id)
+
+        assert updated_wf is not None
+        assert updated_wf.status == WorkflowStatus.COMPLETED
+
+        # Verify an action was staged and executed
+        assert len(updated_wf.actions) >= 1
+        staged_task = updated_wf.actions[0]
+        assert staged_task.action_type == ActionType.CREATE_TASK
+        assert staged_task.title == "Going to marathon"
+        assert staged_task.title != "Prepare Stop Prompting Hackathon project submission"
+
+        # Verify Lyzr Google Tasks tool was called with dynamic title
+        assert deps["create_task"].await_count >= 1
+        call_kwargs = deps["create_task"].call_args[1]
+        assert call_kwargs["title"] == "Going to marathon"
+        assert "due" in call_kwargs
+        assert "Z" in call_kwargs["due"]
+
+        # Verify action result was recorded
+        assert len(updated_wf.action_results) >= 1
+        assert updated_wf.action_results[0].status == ActionStatus.COMPLETED
+
 
 
 
