@@ -8,6 +8,7 @@ from app.config import settings
 from app.models.agent import AskRequest, AskResponse, ExecutionEvent
 from app.models.memory import MemoryItem
 from app.services.lyzr_service import LyzrService, LyzrAPIError
+from app.services.lyzr_system_prompt import LIFEOS_MASTER_SYSTEM_PROMPT
 from app.services.memory_service import MemoryService
 
 logger = logging.getLogger(__name__)
@@ -296,6 +297,7 @@ USER QUESTION:
                 user_id=clean_uid,
                 session_id=session_id,
                 agent_id=mgr_agent_id,
+                instructions=LIFEOS_MASTER_SYSTEM_PROMPT,
             )
             answer = mgr_result.get("response", "").strip()
             active_agent_id = mgr_result.get("agent_id", mgr_agent_id)

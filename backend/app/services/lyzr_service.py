@@ -5,6 +5,11 @@ from typing import Any, Dict, List, Optional
 import httpx
 
 from app.config import settings
+from app.services.lyzr_system_prompt import (
+    LIFEOS_MASTER_SYSTEM_PROMPT,
+    LIFEOS_MANAGER_ROLE,
+    LIFEOS_MANAGER_GOAL,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -46,6 +51,9 @@ class LyzrService:
         user_id: Optional[str] = None,
         session_id: Optional[str] = None,
         agent_id: Optional[str] = None,
+        instructions: Optional[str] = None,
+        role: Optional[str] = None,
+        goal: Optional[str] = None,
     ) -> Dict[str, Any]:
         """
         Sends an inference chat request to the Lyzr Agent API.
@@ -55,6 +63,9 @@ class LyzrService:
             user_id: Target user ID (defaults to configured LYZR_USER_ID).
             session_id: Session identifier for conversational memory in Lyzr.
             agent_id: Target agent ID (defaults to LYZR_RESEARCH_AGENT_ID).
+            instructions: Optional system instructions (defaults to LIFEOS_MASTER_SYSTEM_PROMPT for Manager Agent).
+            role: Optional agent role (defaults to LIFEOS_MANAGER_ROLE for Manager Agent).
+            goal: Optional agent goal (defaults to LIFEOS_MANAGER_GOAL for Manager Agent).
             
         Returns:
             Dict containing 'response' string and any 'module_outputs'.
@@ -84,12 +95,36 @@ class LyzrService:
             "x-api-key": self.api_key,
         }
 
-        payload = {
+        # Determine if targeting Manager Agent
+        is_manager = bool(
+            settings.lyzr_manager_agent_id
+            and (active_agent_id == settings.lyzr_manager_agent_id)
+        )
+
+        effective_instructions = instructions
+        if effective_instructions is None and is_manager:
+            effective_instructions = LIFEOS_MASTER_SYSTEM_PROMPT
+
+        effective_role = role
+        if effective_role is None and is_manager:
+            effective_role = LIFEOS_MANAGER_ROLE
+
+        effective_goal = goal
+        if effective_goal is None and is_manager:
+            effective_goal = LIFEOS_MANAGER_GOAL
+
+        payload: Dict[str, Any] = {
             "user_id": active_user_id,
             "agent_id": active_agent_id,
             "session_id": active_session_id,
             "message": message,
         }
+        if effective_instructions:
+            payload["instructions"] = effective_instructions
+        if effective_role:
+            payload["role"] = effective_role
+        if effective_goal:
+            payload["goal"] = effective_goal
 
         # Log request metadata without revealing the API key or raw private tokens
         logger.info(
@@ -532,5 +567,57 @@ class LyzrService:
             agent_id=settings.lyzr_manager_agent_id,
         )
         return res.get("result", {})
+
+    async def sync_manager_agent_in_studio(self, agent_id: Optional[str] = None) -> Dict[str, Any]:
+        """
+        Synchronizes the LifeOS Master System Prompt directly into the Lyzr Studio
+        agent definition (PUT /v3/agents/{agent_id}) so that the Studio configuration
+        and runtime instructions are identical.
+        """
+        if not self.api_key:
+            return {"ok": False, "error": "No Lyzr API key configured"}
+        target_agent_id = agent_id or settings.lyzr_manager_agent_id
+        if not target_agent_id:
+            return {"ok": False, "error": "No manager agent ID configured"}
+
+        headers = {
+            "Content-Type": "application/json",
+            "x-api-key": self.api_key,
+        }
+        base_studio_url = "https://agent-prod.studio.lyzr.ai"
+        try:
+            async with httpx.AsyncClient(timeout=self.timeout) as client:
+                get_res = await client.get(f"{base_studio_url}/v3/agents/{target_agent_id}", headers=headers)
+                if get_res.status_code != 200:
+                    logger.warning("Could not fetch Lyzr agent %s: HTTP %s", target_agent_id, get_res.status_code)
+                    return {"ok": False, "status_code": get_res.status_code, "error": get_res.text}
+                current_config = get_res.json()
+
+                update_payload = {
+                    "name": current_config.get("name", "AgentMemory Manager Agent"),
+                    "description": current_config.get("description", "LifeOS Master Intelligence Operator"),
+                    "agent_role": LIFEOS_MANAGER_ROLE,
+                    "agent_goal": LIFEOS_MANAGER_GOAL,
+                    "agent_instructions": LIFEOS_MASTER_SYSTEM_PROMPT,
+                    "provider_id": current_config.get("provider_id", "openai"),
+                    "model": current_config.get("model", "gpt-5.4-mini"),
+                    "top_p": current_config.get("top_p", 1.0),
+                    "temperature": current_config.get("temperature", 0.7),
+                    "managed_agents": current_config.get("managed_agents", []),
+                    "tool_configs": current_config.get("tool_configs", []),
+                    "store_messages": current_config.get("store_messages", True),
+                }
+
+                put_res = await client.put(f"{base_studio_url}/v3/agents/{target_agent_id}", headers=headers, json=update_payload)
+                if put_res.status_code == 200:
+                    logger.info("Successfully synchronized LifeOS Master System Prompt to Lyzr Studio agent %s", target_agent_id)
+                    return {"ok": True, "agent_id": target_agent_id, "data": put_res.json()}
+                else:
+                    logger.warning("PUT to Lyzr agent returned HTTP %d: %s", put_res.status_code, put_res.text[:200])
+                    return {"ok": False, "status_code": put_res.status_code, "error": put_res.text}
+        except Exception as exc:
+            logger.error("Failed to sync LifeOS Master System Prompt to Lyzr Studio: %s", exc)
+            return {"ok": False, "error": str(exc)}
+
 
 

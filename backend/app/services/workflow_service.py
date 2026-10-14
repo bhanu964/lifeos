@@ -23,6 +23,7 @@ from app.models.workflow import (
 )
 from app.services.action_service import ActionService
 from app.services.lyzr_service import LyzrService
+from app.services.lyzr_system_prompt import LIFEOS_MASTER_SYSTEM_PROMPT
 from app.services.memory_service import MemoryService
 from app.services.notification_service import NotificationService
 from app.services.telegram_service import TelegramService
@@ -374,8 +375,7 @@ class WorkflowService:
             await self.publish_event("stage_changed", workflow, {"node": "manager_planning"})
 
             memory_ctx = self.memory.format_memories_for_prompt(retrieved)
-            manager_prompt = f"""You are LifeOS, the personal AI operator.
-Analyze this completed voice conversation and synthesize a structured action plan.
+            manager_prompt = f"""Analyze this completed voice conversation and synthesize a structured action plan adhering strictly to LifeOS operating principles (UNDERSTAND -> PLAN -> EXECUTE -> VERIFY -> REPORT).
 
 SPOKEN VOICE CONVERSATION:
 {transcript}
@@ -396,6 +396,7 @@ INSTRUCTIONS:
                     user_id=uid,
                     session_id=f"lifeos-{workflow_id}",
                     agent_id=settings.lyzr_manager_agent_id,
+                    instructions=LIFEOS_MASTER_SYSTEM_PROMPT,
                 )
                 plan_text = lyzr_resp.get("response", "").strip()
             except Exception as lyzr_err:

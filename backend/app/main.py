@@ -66,6 +66,19 @@ async def lifespan(app: FastAPI):
         except Exception as tg_exc:
             logger.warning("Could not auto-configure Telegram webhook on startup: %s", tg_exc)
 
+    # Synchronize LifeOS Master System Prompt to Lyzr Studio Manager Agent
+    if settings.lyzr_api_key and settings.lyzr_manager_agent_id:
+        try:
+            from app.services.lyzr_service import LyzrService
+            lyzr_client = LyzrService()
+            sync_res = await lyzr_client.sync_manager_agent_in_studio()
+            if sync_res.get("ok"):
+                logger.info("Synchronized LifeOS Master System Prompt to Lyzr Studio agent %s", settings.lyzr_manager_agent_id)
+            else:
+                logger.info("Lyzr Studio agent sync response: %s", sync_res)
+        except Exception as lyzr_sync_exc:
+            logger.warning("Could not sync Lyzr Manager Agent in Studio on startup: %s", lyzr_sync_exc)
+
     yield
 
     logger.info("Shutting down AgentMemory AI backend...")

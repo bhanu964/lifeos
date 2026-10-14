@@ -19,6 +19,7 @@ from app.models.action import (
 from app.models.agent import ExecutionEvent
 from app.services.action_service import ActionService
 from app.services.lyzr_service import LyzrService
+from app.services.lyzr_system_prompt import LIFEOS_MASTER_SYSTEM_PROMPT
 from app.services.memory_service import MemoryService
 
 logger = logging.getLogger(__name__)
@@ -238,8 +239,7 @@ class OperatorService:
         cal_str = "\n".join([f"- {e.summary} ({e.start_time} to {e.end_time})" for e in existing_events]) or "No conflicting calendar events found on this date."
         task_str = "\n".join([f"- {t.title}" for t in pending_tasks]) or "No active pending tasks in Google Tasks."
 
-        manager_prompt = f"""You are LifeOS, the personal AI operator.
-Create an optimal, realistic daily plan for {target_date} based strictly on verified inputs.
+        manager_prompt = f"""Create an optimal, realistic daily plan for {target_date} based strictly on verified inputs and LifeOS operating principles.
 
 USER REQUEST:
 {prompt}
@@ -271,6 +271,7 @@ INSTRUCTIONS:
                 user_id=uid,
                 session_id=f"lifeos-plan-{target_date}-{uuid.uuid4().hex[:6]}",
                 agent_id=settings.lyzr_manager_agent_id,
+                instructions=LIFEOS_MASTER_SYSTEM_PROMPT,
             )
             plan_summary = lyzr_res.get("response", "").strip()
             events.append(
@@ -431,8 +432,7 @@ INSTRUCTIONS:
 
         # 3. Use Lyzr Manager to draft subject and body
         memory_context = self.memory.format_memories_for_prompt(retrieved_memories)
-        draft_prompt = f"""You are the LifeOS Email Assistant.
-Draft a professional, clear email based on the user's instruction and personal context.
+        draft_prompt = f"""Draft a professional, clear email based on the user's instruction and personal context following LifeOS Email Intelligence guidelines.
 
 USER INSTRUCTION:
 {prompt}
@@ -460,6 +460,7 @@ Body:
                 message=draft_prompt,
                 user_id=uid,
                 agent_id=settings.lyzr_manager_agent_id,
+                instructions=LIFEOS_MASTER_SYSTEM_PROMPT,
             )
             resp_text = res.get("response", "").strip()
             # Extract subject if provided in output and user did not specify one
