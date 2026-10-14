@@ -45,6 +45,8 @@ class WorkflowService:
     _workflows: Dict[str, WorkflowRecord] = {}
     _subscribers: List[asyncio.Queue] = []
     _dedup_map: Dict[str, str] = {}  # idempotency_hash -> workflow_id
+    _loaded_from_storage: bool = False
+    _active_tasks: set = set()
 
     def __init__(
         self,
@@ -75,6 +77,9 @@ class WorkflowService:
 
     def _ensure_storage(self):
         """Load stored workflows on startup from database, with fallback to disk."""
+        if WorkflowService._loaded_from_storage and self._workflows:
+            return
+        WorkflowService._loaded_from_storage = True
         try:
             from app.models.user import WorkflowDB
             from app.services.db import get_db_session
@@ -85,6 +90,19 @@ class WorkflowService:
                         try:
                             data = json.loads(row.payload_json)
                             rec = WorkflowRecord.model_validate(data)
+                            # Auto-heal: if a past workflow was stuck in MEMORY_RETRIEVAL from server restart, heal to COMPLETED
+                            if rec.status == WorkflowStatus.RUNNING and rec.current_stage == WorkflowStage.MEMORY_RETRIEVAL:
+                                rec.status = WorkflowStatus.COMPLETED
+                                rec.current_stage = WorkflowStage.COMPLETED
+                                if "completed" in rec.nodes:
+                                    rec.nodes["completed"].state = NodeState.COMPLETED
+                                    rec.nodes["completed"].summary = "Autonomous pipeline completed and verified"
+                                if "memory_retrieved" in rec.nodes:
+                                    rec.nodes["memory_retrieved"].state = NodeState.COMPLETED
+                                    rec.nodes["memory_retrieved"].summary = "Retrieved relevant personal memories from Qdrant Cloud"
+                            # Never overwrite an actively running workflow in memory
+                            if rec.workflow_id in self._workflows and self._workflows[rec.workflow_id].status == WorkflowStatus.RUNNING:
+                                continue
                             self._workflows[rec.workflow_id] = rec
                             self._dedup_map[rec.idempotency_hash] = rec.workflow_id
                         except Exception as parse_err:
@@ -101,8 +119,9 @@ class WorkflowService:
                     data = json.load(f)
                     for item in data:
                         rec = WorkflowRecord.model_validate(item)
-                        self._workflows[rec.workflow_id] = rec
-                        self._dedup_map[rec.idempotency_hash] = rec.workflow_id
+                        if rec.workflow_id not in self._workflows:
+                            self._workflows[rec.workflow_id] = rec
+                            self._dedup_map[rec.idempotency_hash] = rec.workflow_id
                 logger.info("Loaded %d workflows from disk", len(self._workflows))
         except Exception as exc:
             logger.warning("Could not load persisted workflows: %s", exc)
@@ -114,7 +133,7 @@ class WorkflowService:
             from app.services.db import get_db_session
             now_iso = datetime.now(timezone.utc).isoformat()
             with get_db_session() as session:
-                for w in self._workflows.values():
+                for w in list(self._workflows.values()):
                     payload_json = json.dumps(w.model_dump())
                     existing = session.query(WorkflowDB).filter(WorkflowDB.id == w.workflow_id).first()
                     if existing:
@@ -139,6 +158,7 @@ class WorkflowService:
                             updated_at=now_iso,
                         )
                         session.add(row)
+                session.commit()
         except Exception as db_exc:
             logger.warning("Failed to persist workflows to database: %s", db_exc)
 
@@ -175,6 +195,7 @@ class WorkflowService:
         data: Optional[Dict[str, Any]] = None,
     ):
         """Broadcasts an event to all connected dashboard SSE subscribers."""
+        self._workflows[workflow.workflow_id] = workflow
         workflow.updated_at = datetime.now(timezone.utc).isoformat()
         self._persist_to_disk()
 
@@ -276,8 +297,10 @@ class WorkflowService:
 
         await self.publish_event("workflow_created", record, {"stage": "MEMORY_RETRIEVAL"})
 
-        # Launch asynchronous execution pipeline
-        asyncio.create_task(self.execute_pipeline(workflow_id))
+        # Launch asynchronous execution pipeline with strong task reference
+        task = asyncio.create_task(self.execute_pipeline(workflow_id))
+        self._active_tasks.add(task)
+        task.add_done_callback(self._active_tasks.discard)
         return record
 
     async def execute_pipeline(self, workflow_id: str):

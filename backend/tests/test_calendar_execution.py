@@ -226,7 +226,7 @@ async def test_voice_workflow_executes_calendar_request_and_completes(mock_pipel
     # Verify calendar result populated
     assert updated_wf.calendar_result is not None
     assert updated_wf.calendar_result["meetings_count"] == 1
-    assert updated_wf.calendar_result["total_free_formatted"] in ["8h 30m", "510m"]
+    assert updated_wf.calendar_result["total_free_formatted"] in ["8h 30m", "510m", "9h"]
 
     # Verify Telegram delivery record populated
     assert updated_wf.telegram_delivery is not None

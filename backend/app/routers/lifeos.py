@@ -76,6 +76,9 @@ def get_operator_service(
     )
 
 
+_workflow_service_instance: Optional[WorkflowService] = None
+
+
 def get_workflow_service(
     memory_service: MemoryService = Depends(get_memory_service),
     lyzr_service: LyzrService = Depends(get_lyzr_service),
@@ -83,13 +86,16 @@ def get_workflow_service(
     notification_service: NotificationService = Depends(get_notification_service),
     telegram_service: TelegramService = Depends(get_telegram_service),
 ) -> WorkflowService:
-    return WorkflowService(
-        memory_service=memory_service,
-        lyzr_service=lyzr_service,
-        action_service=action_service,
-        notification_service=notification_service,
-        telegram_service=telegram_service,
-    )
+    global _workflow_service_instance
+    if _workflow_service_instance is None:
+        _workflow_service_instance = WorkflowService(
+            memory_service=memory_service,
+            lyzr_service=lyzr_service,
+            action_service=action_service,
+            notification_service=notification_service,
+            telegram_service=telegram_service,
+        )
+    return _workflow_service_instance
 
 
 @router.post("/lifeos/plan", response_model=PlanResponse, summary="Generate daily plan and stage action proposals")

@@ -46,6 +46,9 @@ async def lifespan(app: FastAPI):
             if connected:
                 logger.info("Connected to Qdrant Cloud. Ensuring collection '%s' is provisioned...", settings.qdrant_collection_name)
                 await qdrant.init_collection()
+                # Pre-warm FastEmbed model so search_memories during live voice intake has zero cold-start delay
+                await qdrant.generate_embedding("warmup")
+                logger.info("FastEmbed embedding model pre-warmed successfully.")
             else:
                 logger.warning("Could not verify Qdrant Cloud connection on startup. Will retry on demand.")
         else:
