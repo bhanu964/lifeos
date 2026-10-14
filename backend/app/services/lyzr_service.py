@@ -37,6 +37,7 @@ class LyzrService:
         agent_id: Optional[str] = None,
         default_user_id: Optional[str] = None,
         timeout: float = 45.0,
+        is_preconfigured: Optional[bool] = None,
     ):
         self.api_key = api_key if api_key is not None else settings.lyzr_api_key
         self.api_url = api_url if api_url is not None else settings.lyzr_api_url
@@ -44,6 +45,7 @@ class LyzrService:
         self.agent_id = agent_id if agent_id is not None else settings.lyzr_research_agent_id
         self.default_user_id = default_user_id if default_user_id is not None else settings.lyzr_user_id
         self.timeout = timeout
+        self.is_preconfigured = is_preconfigured if is_preconfigured is not None else bool(self.api_key == settings.lyzr_api_key)
 
     async def chat(
         self,
@@ -267,18 +269,21 @@ class LyzrService:
     ) -> List[Dict[str, Any]]:
         """
         Retrieves real calendar events from Google Calendar via Composio.
+        In Preconfigured mode, uses preconfigured calendar credentials.
+        In User's Own Lyzr mode, uses user's own Lyzr account/credential.
         """
-        effective_cred = credential_id or settings.google_calendar_credential_id
-        tool_config = [
-            {
-                "tool_name": "googlecalendar",
-                "tool_source": "composio",
-                "action_names": ["GOOGLECALENDAR_EVENTS_LIST"],
-                "provider_uuid": settings.google_calendar_provider_uuid,
-                "credential_id": effective_cred,
-                "persist_auth": True,
-            }
-        ]
+        effective_cred = credential_id or (settings.google_calendar_credential_id if self.is_preconfigured else None)
+        tool_cfg: Dict[str, Any] = {
+            "tool_name": "googlecalendar",
+            "tool_source": "composio",
+            "action_names": ["GOOGLECALENDAR_EVENTS_LIST"],
+            "provider_uuid": settings.google_calendar_provider_uuid,
+            "persist_auth": True,
+        }
+        if effective_cred:
+            tool_cfg["credential_id"] = effective_cred
+
+        tool_config = [tool_cfg]
         arguments: Dict[str, Any] = {
             "calendarId": calendar_id,
             "maxResults": max_results,
@@ -316,17 +321,18 @@ class LyzrService:
         """
         Creates a real calendar event in Google Calendar via Composio.
         """
-        effective_cred = credential_id or settings.google_calendar_credential_id
-        tool_config = [
-            {
-                "tool_name": "googlecalendar",
-                "tool_source": "composio",
-                "action_names": ["GOOGLECALENDAR_CREATE_EVENT"],
-                "provider_uuid": settings.google_calendar_provider_uuid,
-                "credential_id": effective_cred,
-                "persist_auth": True,
-            }
-        ]
+        effective_cred = credential_id or (settings.google_calendar_credential_id if self.is_preconfigured else None)
+        tool_cfg: Dict[str, Any] = {
+            "tool_name": "googlecalendar",
+            "tool_source": "composio",
+            "action_names": ["GOOGLECALENDAR_CREATE_EVENT"],
+            "provider_uuid": settings.google_calendar_provider_uuid,
+            "persist_auth": True,
+        }
+        if effective_cred:
+            tool_cfg["credential_id"] = effective_cred
+
+        tool_config = [tool_cfg]
         arguments: Dict[str, Any] = {
             "summary": summary,
             "start_datetime": start_datetime,
@@ -353,17 +359,18 @@ class LyzrService:
         """
         Retrieves real pending tasks from Google Tasks via Composio.
         """
-        effective_cred = credential_id or settings.google_tasks_credential_id
-        tool_config = [
-            {
-                "tool_name": "googletasks",
-                "tool_source": "composio",
-                "action_names": ["GOOGLETASKS_LIST_TASKS"],
-                "provider_uuid": settings.google_tasks_provider_uuid,
-                "credential_id": effective_cred,
-                "persist_auth": True,
-            }
-        ]
+        effective_cred = credential_id or (settings.google_tasks_credential_id if self.is_preconfigured else None)
+        tool_cfg: Dict[str, Any] = {
+            "tool_name": "googletasks",
+            "tool_source": "composio",
+            "action_names": ["GOOGLETASKS_LIST_TASKS"],
+            "provider_uuid": settings.google_tasks_provider_uuid,
+            "persist_auth": True,
+        }
+        if effective_cred:
+            tool_cfg["credential_id"] = effective_cred
+
+        tool_config = [tool_cfg]
         arguments: Dict[str, Any] = {
             "tasklist_id": tasklist_id,
             "maxResults": max_results,
@@ -392,17 +399,18 @@ class LyzrService:
         """
         Creates a real task in Google Tasks via Composio.
         """
-        effective_cred = credential_id or settings.google_tasks_credential_id
-        tool_config = [
-            {
-                "tool_name": "googletasks",
-                "tool_source": "composio",
-                "action_names": ["GOOGLETASKS_INSERT_TASK"],
-                "provider_uuid": settings.google_tasks_provider_uuid,
-                "credential_id": effective_cred,
-                "persist_auth": True,
-            }
-        ]
+        effective_cred = credential_id or (settings.google_tasks_credential_id if self.is_preconfigured else None)
+        tool_cfg: Dict[str, Any] = {
+            "tool_name": "googletasks",
+            "tool_source": "composio",
+            "action_names": ["GOOGLETASKS_INSERT_TASK"],
+            "provider_uuid": settings.google_tasks_provider_uuid,
+            "persist_auth": True,
+        }
+        if effective_cred:
+            tool_cfg["credential_id"] = effective_cred
+
+        tool_config = [tool_cfg]
         arguments: Dict[str, Any] = {
             "tasklist_id": tasklist_id,
             "title": title,
@@ -429,17 +437,18 @@ class LyzrService:
         """
         Retrieves a task by ID to verify its creation in Google Tasks.
         """
-        effective_cred = credential_id or settings.google_tasks_credential_id
-        tool_config = [
-            {
-                "tool_name": "googletasks",
-                "tool_source": "composio",
-                "action_names": ["GOOGLETASKS_GET_TASK"],
-                "provider_uuid": settings.google_tasks_provider_uuid,
-                "credential_id": effective_cred,
-                "persist_auth": True,
-            }
-        ]
+        effective_cred = credential_id or (settings.google_tasks_credential_id if self.is_preconfigured else None)
+        tool_cfg: Dict[str, Any] = {
+            "tool_name": "googletasks",
+            "tool_source": "composio",
+            "action_names": ["GOOGLETASKS_GET_TASK"],
+            "provider_uuid": settings.google_tasks_provider_uuid,
+            "persist_auth": True,
+        }
+        if effective_cred:
+            tool_cfg["credential_id"] = effective_cred
+
+        tool_config = [tool_cfg]
         arguments = {
             "tasklist_id": tasklist_id,
             "task_id": task_id,
@@ -463,18 +472,27 @@ class LyzrService:
         """
         Creates a real email draft in Gmail via Composio.
         Strict safety: Only stages/creates drafts, never sends messages.
+        In Preconfigured Lyzr mode: Gmail is strictly disabled and blocked to protect privacy.
+        In User's Own Lyzr mode: uses user's own Lyzr account/credential, never developer credentials.
         """
-        effective_cred = credential_id or settings.gmail_credential_id
-        tool_config = [
-            {
-                "tool_name": "gmail",
-                "tool_source": "composio",
-                "action_names": ["GMAIL_CREATE_EMAIL_DRAFT"],
-                "provider_uuid": settings.gmail_provider_uuid,
-                "credential_id": effective_cred,
-                "persist_auth": True,
-            }
-        ]
+        if self.is_preconfigured and not credential_id:
+            raise LyzrAPIError(
+                "Gmail is completely disabled in Preconfigured Lyzr mode to protect account privacy. Provide your own Lyzr credentials in Settings to enable Gmail.",
+                status_code=403,
+            )
+
+        effective_cred = credential_id
+        tool_cfg: Dict[str, Any] = {
+            "tool_name": "gmail",
+            "tool_source": "composio",
+            "action_names": ["GMAIL_CREATE_EMAIL_DRAFT"],
+            "provider_uuid": settings.gmail_provider_uuid,
+            "persist_auth": True,
+        }
+        if effective_cred:
+            tool_cfg["credential_id"] = effective_cred
+
+        tool_config = [tool_cfg]
         arguments: Dict[str, Any] = {
             "user_id": user_id,
             "recipient_email": recipient_email,
@@ -486,7 +504,7 @@ class LyzrService:
             tool_name="GMAIL_CREATE_EMAIL_DRAFT",
             tool_configs=tool_config,
             arguments=arguments,
-            agent_id=settings.lyzr_manager_agent_id,
+            agent_id=self.agent_id,
         )
         return res.get("result", {})
 
@@ -497,23 +515,31 @@ class LyzrService:
     ) -> Dict[str, Any]:
         """
         Retrieves real drafts from Gmail to verify draft creation.
+        In Preconfigured Lyzr mode: Gmail is strictly disabled and blocked to protect privacy.
         """
-        effective_cred = credential_id or settings.gmail_credential_id
-        tool_config = [
-            {
-                "tool_name": "gmail",
-                "tool_source": "composio",
-                "action_names": ["GMAIL_LIST_DRAFTS"],
-                "provider_uuid": settings.gmail_provider_uuid,
-                "credential_id": effective_cred,
-                "persist_auth": True,
-            }
-        ]
+        if self.is_preconfigured and not credential_id:
+            raise LyzrAPIError(
+                "Gmail is completely disabled in Preconfigured Lyzr mode to protect account privacy. Provide your own Lyzr credentials in Settings to enable Gmail.",
+                status_code=403,
+            )
+
+        effective_cred = credential_id
+        tool_cfg: Dict[str, Any] = {
+            "tool_name": "gmail",
+            "tool_source": "composio",
+            "action_names": ["GMAIL_LIST_DRAFTS"],
+            "provider_uuid": settings.gmail_provider_uuid,
+            "persist_auth": True,
+        }
+        if effective_cred:
+            tool_cfg["credential_id"] = effective_cred
+
+        tool_config = [tool_cfg]
         res = await self.execute_tool(
             tool_name="GMAIL_LIST_DRAFTS",
             tool_configs=tool_config,
             arguments={"user_id": user_id},
-            agent_id=settings.lyzr_manager_agent_id,
+            agent_id=self.agent_id,
         )
         return res.get("result", {})
 

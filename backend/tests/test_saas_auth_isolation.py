@@ -239,11 +239,18 @@ async def test_saas_custom_credentials_service_resolution():
 async def test_strict_user_credentials_and_zero_fallback():
     """
     Acceptance Criteria Matrix:
-    1. New users are never automatically connected to developer's accounts or private integrations.
-    2. Google Calendar, Google Tasks, Gmail, Telegram, and Qdrant default to 'unconfigured' for new users.
-    3. Telegram chat resolution strictly yields None for unlinked users (no developer chat_id leak).
-    4. Integration test endpoints cleanly fail when unconfigured rather than validating against server credentials.
-    5. Action execution without user-connected Google credentials raises clear error and prevents unauthorized execution.
+    1. Mode 1 (PRECONFIGURED LYZR):
+       - Google Calendar & Google Tasks are active via preconfigured Lyzr.
+       - Gmail is completely disabled and inaccessible (status unconfigured/policy inaccessible).
+       - Testing Gmail fails with 400 Bad Request.
+       - Action execution for Gmail draft raises ValueError in Preconfigured Lyzr mode.
+    2. Mode 2 (USER'S OWN LYZR CREDENTIALS):
+       - User provides own Lyzr credentials.
+       - Google Calendar, Tasks, and Gmail are all enabled via user's Lyzr account.
+       - Testing Gmail succeeds.
+    3. Reversion:
+       - Deleting custom Lyzr credentials safely restores Preconfigured Lyzr mode.
+    4. Telegram chat resolution strictly yields None for unlinked users (no developer chat_id leak).
     """
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as client:
@@ -258,61 +265,87 @@ async def test_strict_user_credentials_and_zero_fallback():
         uid = signup_res.json()["user"]["id"]
         headers = {"Authorization": f"Bearer {token}"}
 
-        # 2. Check all integration statuses: User-owned integrations MUST be 'unconfigured'
+        # 2. Check all integration statuses in PRECONFIGURED LYZR mode (Default)
         res_list = await client.get("/api/integrations", headers=headers)
         assert res_list.status_code == 200
         integrations = res_list.json()["integrations"]
 
-        assert integrations["google_calendar"]["status"] == "unconfigured"
-        assert integrations["google_tasks"]["status"] == "unconfigured"
+        assert integrations["google_calendar"]["status"] == "connected"
+        assert integrations["google_calendar"]["masked_fields"].get("mode") == "preconfigured_lyzr"
+        assert integrations["google_tasks"]["status"] == "connected"
+        assert integrations["google_tasks"]["masked_fields"].get("mode") == "preconfigured_lyzr"
         assert integrations["gmail"]["status"] == "unconfigured"
+        assert integrations["gmail"]["masked_fields"].get("mode") == "preconfigured_lyzr"
         assert integrations["telegram"]["status"] == "unconfigured"
         assert integrations["qdrant"]["status"] == "unconfigured"
-        # Lyzr intelligence engine is managed by LifeOS
         assert integrations["lyzr"]["status"] == "connected"
-        assert integrations["lyzr"]["masked_fields"].get("source") == "managed_triad"
+        assert integrations["lyzr"]["masked_fields"].get("mode") == "preconfigured_lyzr"
 
         # 3. Check Telegram chat ID resolution for new user: must strictly be None
         from app.services.telegram_service import TelegramService
         tg_svc = TelegramService()
         assert tg_svc.get_effective_chat_id(uid) is None
 
-        # 4. Testing unconfigured integrations fails gracefully instead of falling back to server .env
-        test_tg = await client.post("/api/integrations/telegram/test", headers=headers)
-        assert test_tg.status_code == 400
-        assert "not connected" in test_tg.json()["detail"].lower()
+        # 4. Mode 1 tests: Calendar and Tasks test endpoints succeed via Preconfigured Lyzr
+        test_cal = await client.post("/api/integrations/google_calendar/test", headers=headers)
+        assert test_cal.status_code == 200
+        assert test_cal.json()["success"] is True
 
         test_tasks = await client.post("/api/integrations/google_tasks/test", headers=headers)
-        assert test_tasks.status_code == 400
-        assert "credentials connected" in test_tasks.json()["detail"].lower()
+        assert test_tasks.status_code == 200
+        assert test_tasks.json()["success"] is True
 
+        # Mode 1 test: Gmail test MUST fail cleanly (disabled in Preconfigured mode)
         test_gmail = await client.post("/api/integrations/gmail/test", headers=headers)
         assert test_gmail.status_code == 400
-        assert "credentials connected" in test_gmail.json()["detail"].lower()
+        assert "disabled in preconfigured lyzr mode" in test_gmail.json()["detail"].lower()
 
-        # 5. User explicitly selects Managed Qdrant cluster
-        managed_qdrant_res = await client.post(
-            "/api/integrations/qdrant",
-            json={"credentials": {"use_managed": True}},
+        # 5. User provides OWN Lyzr credentials -> switches to Mode 2 (USER'S OWN LYZR CREDENTIALS)
+        save_lyzr_res = await client.post(
+            "/api/integrations/lyzr",
+            json={"credentials": {"lyzr_api_key": "lyzr-sk-user-custom-secret-key-12345"}},
             headers=headers,
         )
-        assert managed_qdrant_res.status_code == 200
-        assert managed_qdrant_res.json()["status"] == "connected"
-        assert managed_qdrant_res.json()["masked_fields"].get("source") == "managed_cluster"
-        assert managed_qdrant_res.json()["masked_fields"].get("tenant_partition") == uid
+        assert save_lyzr_res.status_code == 200
 
-        # 6. User connects their own Google Tasks credential
-        custom_cred_id = f"user_tasks_cred_{uuid.uuid4().hex[:8]}"
-        save_tasks_res = await client.post(
-            "/api/integrations/google_tasks",
-            json={"credentials": {"credential_id": custom_cred_id}},
-            headers=headers,
+        # Verify Mode 2 statuses
+        res_list_mode2 = await client.get("/api/integrations", headers=headers)
+        assert res_list_mode2.status_code == 200
+        integrations_m2 = res_list_mode2.json()["integrations"]
+
+        assert integrations_m2["lyzr"]["masked_fields"].get("mode") == "user_own_lyzr"
+        assert integrations_m2["google_calendar"]["masked_fields"].get("mode") == "user_own_lyzr"
+        assert integrations_m2["google_tasks"]["masked_fields"].get("mode") == "user_own_lyzr"
+        assert integrations_m2["gmail"]["status"] == "connected"
+        assert integrations_m2["gmail"]["masked_fields"].get("mode") == "user_own_lyzr"
+
+        # In Mode 2, testing Gmail succeeds via user's own Lyzr account
+        test_gmail_m2 = await client.post("/api/integrations/gmail/test", headers=headers)
+        assert test_gmail_m2.status_code == 200
+        assert test_gmail_m2.json()["success"] is True
+
+        # 6. Revert back to Preconfigured Lyzr
+        del_lyzr_res = await client.delete("/api/integrations/lyzr", headers=headers)
+        assert del_lyzr_res.status_code == 200
+
+        # Verify reverted status
+        res_list_reverted = await client.get("/api/integrations", headers=headers)
+        integrations_rev = res_list_reverted.json()["integrations"]
+        assert integrations_rev["gmail"]["status"] == "unconfigured"
+        assert integrations_rev["gmail"]["masked_fields"].get("mode") == "preconfigured_lyzr"
+
+        # 7. Verify ActionService strictly rejects Gmail draft execution in Preconfigured Lyzr mode
+        from app.services.action_service import ActionService
+        from app.models.action import ActionType
+        action_svc = ActionService()
+        staged_draft = await action_svc.stage_action(
+            uid=uid,
+            action_type=ActionType.CREATE_GMAIL_DRAFT,
+            title="Draft to test@example.com",
+            description="Testing email draft staging",
+            parameters={"recipient_email": "test@example.com", "subject": "Subject", "body": "Body"},
         )
-        assert save_tasks_res.status_code == 200
-        assert save_tasks_res.json()["status"] == "connected"
+        with pytest.raises(ValueError, match="Gmail is completely disabled in Preconfigured Lyzr mode"):
+            await action_svc.confirm_and_execute(staged_draft.action_id, uid)
 
-        # Now Google Tasks test succeeds
-        test_tasks_after = await client.post("/api/integrations/google_tasks/test", headers=headers)
-        assert test_tasks_after.status_code == 200
-        assert test_tasks_after.json()["success"] is True
 

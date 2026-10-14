@@ -27,6 +27,7 @@ from app.services.lyzr_system_prompt import LIFEOS_MASTER_SYSTEM_PROMPT
 from app.services.memory_service import MemoryService
 from app.services.notification_service import NotificationService
 from app.services.telegram_service import TelegramService
+from app.services.user_credentials_service import UserCredentialsService
 from app.utils.calendar_utils import get_day_rfc3339_boundaries, resolve_date_from_text
 
 logger = logging.getLogger(__name__)
@@ -595,7 +596,18 @@ INSTRUCTIONS:
             # STAGE 7: Telegram Approval (Conditional for Gmail Draft)
             # -------------------------------------------------------------
             node_ta = workflow.nodes["telegram_approval"]
+            is_preconfigured = UserCredentialsService.is_using_preconfigured_lyzr(uid)
+
             if has_email:
+                if is_preconfigured:
+                    logger.info("User %s is on Preconfigured Lyzr. Gmail is disabled to protect privacy.", uid)
+                    node_ta.state = NodeState.SKIPPED
+                    node_ta.summary = "Gmail is disabled in Preconfigured Lyzr mode to protect privacy. Connect your own Lyzr credentials in Settings to enable Gmail."
+                    node_ta.details = {"reason": "preconfigured_lyzr_gmail_disabled"}
+                    await self.publish_event("node_updated", workflow, {"node": "telegram_approval", "status": "skipped"})
+                    await self._finish_pipeline(workflow)
+                    return
+
                 workflow.current_stage = WorkflowStage.AWAITING_TELEGRAM_APPROVAL
                 workflow.status = WorkflowStatus.AWAITING_APPROVAL
                 node_ta.state = NodeState.AWAITING_TELEGRAM_APPROVAL

@@ -223,6 +223,8 @@ class ActionService:
             execution_result: Dict[str, Any] = {}
             verified = False
 
+            is_preconfigured = UserCredentialsService.is_using_preconfigured_lyzr(uid)
+
             if action.action_type == ActionType.CREATE_TASK:
                 title = action.parameters.get("title", action.title)
                 notes = action.parameters.get("notes", action.description)
@@ -231,10 +233,6 @@ class ActionService:
 
                 creds = UserCredentialsService.get_decrypted_credentials(uid, "google_tasks")
                 cred_id = creds.get("google_tasks_credential_id") or creds.get("credential_id") or action.parameters.get("credential_id")
-                is_mock = _is_mocked(self.lyzr) or _is_mocked(getattr(self.lyzr, "create_task", None))
-                if not cred_id and not is_mock:
-                    raise ValueError("Google Tasks is not connected for your account. Please connect your Google account in Settings.")
-
                 kwargs = {"credential_id": cred_id} if cred_id else {}
                 raw_res = await self.lyzr.create_task(
                     title=title,
@@ -261,10 +259,6 @@ class ActionService:
 
                 creds = UserCredentialsService.get_decrypted_credentials(uid, "google_calendar")
                 cred_id = creds.get("google_calendar_credential_id") or creds.get("credential_id") or action.parameters.get("credential_id")
-                is_mock = _is_mocked(self.lyzr) or _is_mocked(getattr(self.lyzr, "create_calendar_event", None))
-                if not cred_id and not is_mock:
-                    raise ValueError("Google Calendar is not connected for your account. Please connect your Google account in Settings.")
-
                 kwargs = {"credential_id": cred_id} if cred_id else {}
                 raw_res = await self.lyzr.create_calendar_event(
                     summary=summary,
@@ -285,16 +279,18 @@ class ActionService:
                 if not recipient or "@" not in recipient:
                     raise ValueError(f"Invalid or missing recipient email address: '{recipient}'")
 
+                is_mock = _is_mocked(self.lyzr) or _is_mocked(getattr(self.lyzr, "create_gmail_draft", None))
+                if is_preconfigured and not is_mock:
+                    raise ValueError(
+                        "Gmail is completely disabled in Preconfigured Lyzr mode to protect account privacy. Provide your own Lyzr credentials in Settings to enable Gmail."
+                    )
+
                 subject = action.parameters.get("subject", action.title)
                 body = action.parameters.get("body", action.description)
                 is_html = bool(action.parameters.get("is_html", False))
 
                 creds = UserCredentialsService.get_decrypted_credentials(uid, "gmail")
                 cred_id = creds.get("gmail_credential_id") or creds.get("credential_id") or action.parameters.get("credential_id")
-                is_mock = _is_mocked(self.lyzr) or _is_mocked(getattr(self.lyzr, "create_gmail_draft", None))
-                if not cred_id and not is_mock:
-                    raise ValueError("Gmail is not connected for your account. Please connect your Google account in Settings.")
-
                 kwargs = {"credential_id": cred_id} if cred_id else {}
                 raw_res = await self.lyzr.create_gmail_draft(
                     recipient_email=recipient,
@@ -324,10 +320,6 @@ class ActionService:
 
                 creds = UserCredentialsService.get_decrypted_credentials(uid, "google_calendar")
                 cred_id = creds.get("google_calendar_credential_id") or creds.get("credential_id") or action.parameters.get("credential_id")
-                is_mock = _is_mocked(self.lyzr) or _is_mocked(getattr(self.lyzr, "list_calendar_events", None))
-                if not cred_id and not is_mock:
-                    raise ValueError("Google Calendar is not connected for your account. Please connect your Google account in Settings.")
-
                 kwargs = {"credential_id": cred_id} if cred_id else {}
                 raw_items = await self.lyzr.list_calendar_events(
                     time_min=time_min,

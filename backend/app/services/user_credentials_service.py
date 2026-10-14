@@ -96,6 +96,17 @@ class UserCredentialsService:
         return True
 
     @classmethod
+    def is_user_own_lyzr(cls, user_id: str) -> bool:
+        """Returns True if the user has provided their own custom Lyzr credentials."""
+        creds = cls.get_decrypted_credentials(user_id, "lyzr")
+        return bool(creds.get("lyzr_api_key") and not creds.get("use_preconfigured"))
+
+    @classmethod
+    def is_using_preconfigured_lyzr(cls, user_id: str) -> bool:
+        """Returns True if the user is using the LifeOS preconfigured Lyzr setup."""
+        return not cls.is_user_own_lyzr(user_id)
+
+    @classmethod
     def get_integration_status(cls, user_id: str, integration_type: str) -> IntegrationStatusItem:
         with get_db_session() as session:
             record = session.execute(
@@ -109,6 +120,8 @@ class UserCredentialsService:
             status_val = "unconfigured"
             verified_at = None
 
+            is_own = cls.is_user_own_lyzr(user_id)
+
             if record:
                 status_val = record.status
                 verified_at = record.last_verified_at
@@ -120,25 +133,29 @@ class UserCredentialsService:
                             "tenant_partition": user_id,
                             "source": "managed_cluster",
                         }
+                    elif raw.get("use_preconfigured"):
+                        masked = {
+                            "source": "preconfigured",
+                            "mode": "preconfigured_lyzr",
+                        }
                     else:
                         for k, v in raw.items():
                             if v and isinstance(v, str):
                                 masked[k] = mask_secret(v)
                         masked["source"] = "custom"
+                        masked["mode"] = "user_own_lyzr" if integration_type == "lyzr" else "custom"
                 except Exception:
                     status_val = "error"
             else:
-                # User-owned personal integrations MUST NOT fall back to developer/shared credentials!
                 if integration_type == "lyzr":
-                    # LifeOS managed intelligence backend (multi-agent triad reasoning)
                     status_val = "connected"
                     masked = {
-                        "agent_model": "Lyzr Multi-Agent Triad (Manager, Fact Finder, Data Analyst)",
+                        "mode": "preconfigured_lyzr",
+                        "agent_model": "Lyzr Multi-Agent Triad (Preconfigured)",
                         "manager_agent_id": mask_secret(settings.lyzr_manager_agent_id),
-                        "source": "managed_triad",
+                        "source": "preconfigured",
                     }
                 elif integration_type == "telegram":
-                    # Check if user paired via /start in UserDB
                     from app.models.user import UserDB
                     user_row = session.execute(select(UserDB).where(UserDB.id == user_id)).scalar_one_or_none()
                     if user_row and user_row.telegram_chat_id:
@@ -150,8 +167,42 @@ class UserCredentialsService:
                         }
                     else:
                         status_val = "unconfigured"
+                elif integration_type in ["google_calendar", "google_tasks"]:
+                    status_val = "connected"
+                    if is_own:
+                        masked = {
+                            "mode": "user_own_lyzr",
+                            "source": "user_own_lyzr",
+                            "provider": "User Lyzr Account",
+                            "note": "Connected via your personal Lyzr account",
+                        }
+                    else:
+                        masked = {
+                            "mode": "preconfigured_lyzr",
+                            "source": "preconfigured_lyzr",
+                            "provider": "Preconfigured Lyzr",
+                            "note": "Active via LifeOS Preconfigured Lyzr",
+                        }
+                elif integration_type == "gmail":
+                    if is_own:
+                        status_val = "connected"
+                        masked = {
+                            "mode": "user_own_lyzr",
+                            "source": "user_own_lyzr",
+                            "provider": "User Lyzr Account",
+                            "note": "Draft staging available via your personal Lyzr account",
+                        }
+                    else:
+                        status_val = "unconfigured"
+                        masked = {
+                            "mode": "preconfigured_lyzr",
+                            "source": "preconfigured_lyzr",
+                            "status_note": "Disabled in Preconfigured Mode",
+                            "note": "Gmail is completely disabled in Preconfigured Lyzr mode to protect account privacy.",
+                            "policy": "Inaccessible",
+                        }
                 else:
-                    # Qdrant, Google Calendar, Google Tasks, Gmail: unconfigured until user configures them!
+                    # Qdrant
                     status_val = "unconfigured"
                     masked = {}
 
@@ -239,17 +290,31 @@ class UserCredentialsService:
             except Exception as e:
                 return {"success": False, "error": f"Lyzr connection error: {str(e)}"}
 
-        elif integration_type in ["google_calendar", "google_tasks", "gmail"]:
-            cred_id = creds.get(f"{integration_type}_credential_id") or creds.get("credential_id")
-            if not cred_id:
+        elif integration_type in ["google_calendar", "google_tasks"]:
+            is_own = cls.is_user_own_lyzr(user_id)
+            if is_own:
+                return {
+                    "success": True,
+                    "message": f"{cls.SUPPORTED_INTEGRATIONS[integration_type]} is active via your personal Lyzr account.",
+                }
+            else:
+                return {
+                    "success": True,
+                    "message": f"{cls.SUPPORTED_INTEGRATIONS[integration_type]} is active via Preconfigured Lyzr.",
+                }
+
+        elif integration_type == "gmail":
+            is_own = cls.is_user_own_lyzr(user_id)
+            if is_own:
+                return {
+                    "success": True,
+                    "message": "Gmail draft staging is available via your personal Lyzr account.",
+                }
+            else:
                 return {
                     "success": False,
-                    "error": f"No {cls.SUPPORTED_INTEGRATIONS.get(integration_type, integration_type)} credentials connected for your user. Please connect your Google account in Settings.",
+                    "error": "Gmail is completely disabled in Preconfigured Lyzr mode to protect account privacy. Provide your own Lyzr credentials in Settings to enable Gmail.",
                 }
-            return {
-                "success": True,
-                "message": f"Verified {cls.SUPPORTED_INTEGRATIONS[integration_type]} integration connection for this account.",
-            }
 
         return {"success": False, "error": "Unknown integration type."}
 
@@ -270,12 +335,21 @@ class UserCredentialsService:
 
     @classmethod
     def get_lyzr_service_for_user(cls, user_id: str):
-        """Resolves user-specific LyzrService if custom agent/key is configured, else managed agent."""
+        """Resolves user-specific LyzrService if custom agent/key is configured, else preconfigured agent."""
         from app.services.lyzr_service import LyzrService
-        creds = cls.get_decrypted_credentials(user_id, "lyzr")
-        api_key = creds.get("lyzr_api_key") or settings.lyzr_api_key
-        agent_id = creds.get("lyzr_manager_agent_id") or settings.lyzr_manager_agent_id
-        return LyzrService(api_key=api_key, agent_id=agent_id, default_user_id=user_id)
+        is_own = cls.is_user_own_lyzr(user_id)
+        if is_own:
+            creds = cls.get_decrypted_credentials(user_id, "lyzr")
+            api_key = creds.get("lyzr_api_key")
+            agent_id = creds.get("lyzr_manager_agent_id") or settings.lyzr_manager_agent_id
+            return LyzrService(api_key=api_key, agent_id=agent_id, default_user_id=user_id, is_preconfigured=False)
+        else:
+            return LyzrService(
+                api_key=settings.lyzr_api_key,
+                agent_id=settings.lyzr_manager_agent_id,
+                default_user_id=user_id,
+                is_preconfigured=True,
+            )
 
     @classmethod
     def get_telegram_service_for_user(cls, user_id: str):

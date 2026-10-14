@@ -29,6 +29,8 @@ import {
   ListTodoIcon,
   Trash2Icon,
   AlertTriangleIcon,
+  LockIcon,
+  ArrowRightIcon,
 } from 'lucide-react';
 
 interface IntegrationsSettingsViewProps {
@@ -45,10 +47,6 @@ export const IntegrationsSettingsView: React.FC<IntegrationsSettingsViewProps> =
   const [testResult, setTestResult] = useState<{ type: string; success: boolean; message: string } | null>(null);
   const [rotatingToken, setRotatingToken] = useState<boolean>(false);
   const [copiedUrl, setCopiedUrl] = useState<boolean>(false);
-
-  // Google credential management
-  const [googleCredentialInput, setGoogleCredentialInput] = useState<string>('');
-  const [savingGoogle, setSavingGoogle] = useState<boolean>(false);
 
   const fetchIntegrations = async () => {
     setLoading(true);
@@ -88,53 +86,23 @@ export const IntegrationsSettingsView: React.FC<IntegrationsSettingsViewProps> =
     }
   };
 
-  const handleSaveGoogle = async () => {
-    if (!googleCredentialInput.trim()) return;
-    setSavingGoogle(true);
-    setTestResult(null);
-    try {
-      await api.saveIntegration('google_tasks', { credential_id: googleCredentialInput.trim() });
-      await api.saveIntegration('google_calendar', { credential_id: googleCredentialInput.trim() });
-      await api.saveIntegration('gmail', { credential_id: googleCredentialInput.trim() });
-
-      const testRes = await api.testIntegration('google_tasks');
-      setTestResult({
-        type: 'google_workspace',
-        success: testRes.success,
-        message: 'Google Account connected and verified successfully!',
-      });
-      setGoogleCredentialInput('');
-      fetchIntegrations();
-    } catch (err: any) {
-      setTestResult({
-        type: 'google_workspace',
-        success: false,
-        message: err?.message || 'Failed to verify Google account credentials.',
-      });
-    } finally {
-      setSavingGoogle(false);
-    }
-  };
-
-  const handleDisconnectGoogle = async () => {
-    if (!window.confirm('Disconnect your personal Google account? Tasks, calendar events, and email drafts will be paused until reconnected.')) {
+  const handleRevertToPreconfiguredLyzr = async () => {
+    if (!window.confirm('Revert to LifeOS Preconfigured Lyzr? Custom agent keys will be removed, and Gmail access will be disabled.')) {
       return;
     }
     try {
-      await api.disconnectIntegration('google_tasks');
-      await api.disconnectIntegration('google_calendar');
-      await api.disconnectIntegration('gmail');
+      await api.disconnectIntegration('lyzr');
       setTestResult({
-        type: 'google_workspace',
+        type: 'lyzr',
         success: true,
-        message: 'Google account disconnected successfully.',
+        message: 'Reverted to Preconfigured Lyzr successfully. Calendar & Tasks active, Gmail disabled for privacy.',
       });
       fetchIntegrations();
     } catch (err: any) {
       setTestResult({
-        type: 'google_workspace',
+        type: 'lyzr',
         success: false,
-        message: err?.message || 'Failed to disconnect Google account.',
+        message: err?.message || 'Failed to revert Lyzr configuration.',
       });
     }
   };
@@ -164,6 +132,11 @@ export const IntegrationsSettingsView: React.FC<IntegrationsSettingsViewProps> =
   const isCustom = (type: string) => {
     return integrations[type]?.masked_fields?.source === 'custom';
   };
+
+  const isUserOwnLyzr =
+    isCustom('lyzr') ||
+    integrations.google_calendar?.masked_fields?.mode === 'user_own_lyzr' ||
+    integrations.gmail?.masked_fields?.mode === 'user_own_lyzr';
 
   const isGoogleConnected =
     integrations.google_tasks?.status === 'connected' ||
@@ -484,131 +457,153 @@ export const IntegrationsSettingsView: React.FC<IntegrationsSettingsViewProps> =
                 <CalendarIcon className="w-6 h-6 text-amber-400" />
                 <h4 className="text-lg sm:text-xl font-bold text-white">Google Workspace (Gmail, Tasks, Calendar)</h4>
                 <span className={`px-3 py-1 rounded-full text-xs font-mono font-semibold ${
-                  isGoogleConnected
-                    ? 'bg-emerald-950 border border-emerald-500/40 text-emerald-300'
-                    : 'bg-amber-950 border border-amber-500/40 text-amber-300'
+                  isUserOwnLyzr
+                    ? 'bg-indigo-950 border border-indigo-500/40 text-indigo-300'
+                    : 'bg-cyan-950 border border-cyan-500/40 text-cyan-300'
                 }`}>
-                  {isGoogleConnected ? 'Connected' : 'Not Connected'}
+                  {isUserOwnLyzr ? "User's Own Lyzr" : 'Preconfigured Lyzr'}
                 </span>
               </div>
               <p className="text-sm sm:text-base text-slate-300 leading-relaxed">
-                LifeOS reads calendar meetings, schedules tasks, and prepares staged email drafts strictly using <strong className="text-white">your personal Google account</strong>. Developer credentials are never used.
+                {isUserOwnLyzr
+                  ? 'Executing through your personal Lyzr account. Calendar, Tasks, and Gmail drafts use your permissions and tools.'
+                  : 'Using preconfigured Lyzr for Google Calendar and Tasks. Gmail is completely disabled and blocked to protect account privacy.'}
               </p>
             </div>
-            {isGoogleConnected && (
+            {isUserOwnLyzr && (
               <button
                 type="button"
-                onClick={handleDisconnectGoogle}
-                className="px-4 py-2 rounded-xl bg-red-950/60 hover:bg-red-900 border border-red-500/40 text-red-300 text-xs sm:text-sm font-mono flex items-center gap-1.5 transition-colors"
+                onClick={handleRevertToPreconfiguredLyzr}
+                className="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-300 text-xs sm:text-sm font-mono flex items-center gap-1.5 transition-colors shrink-0"
               >
-                <Trash2Icon className="w-4 h-4" />
-                <span>Disconnect Google</span>
+                <span>Revert to Preconfigured</span>
               </button>
             )}
           </div>
 
           {/* Sub-services status grid */}
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-            <div className={`p-4 rounded-2xl bg-slate-900/90 border flex flex-col items-center text-center ${
-              integrations.google_calendar?.status === 'connected' ? 'border-emerald-500/40' : 'border-slate-800'
-            }`}>
-              <CalendarIcon className={`w-7 h-7 mb-2 ${
-                integrations.google_calendar?.status === 'connected' ? 'text-amber-400' : 'text-slate-500'
-              }`} />
+            <div className="p-4 rounded-2xl bg-slate-900/90 border border-emerald-500/40 flex flex-col items-center text-center">
+              <CalendarIcon className="w-7 h-7 mb-2 text-amber-400" />
               <span className="text-sm font-bold text-white">Google Calendar</span>
-              <span className={`text-xs font-mono mt-1 font-semibold ${
-                integrations.google_calendar?.status === 'connected' ? 'text-emerald-400' : 'text-slate-400'
-              }`}>
-                {integrations.google_calendar?.status === 'connected' ? 'Connected' : 'Not Connected'}
+              <span className="text-xs font-mono mt-1 font-semibold text-emerald-400">
+                Connected
+              </span>
+              <span className="text-[11px] font-mono text-slate-400 mt-0.5">
+                {isUserOwnLyzr ? 'User Account' : 'Preconfigured'}
               </span>
             </div>
 
-            <div className={`p-4 rounded-2xl bg-slate-900/90 border flex flex-col items-center text-center ${
-              integrations.google_tasks?.status === 'connected' ? 'border-emerald-500/40' : 'border-slate-800'
-            }`}>
-              <ListTodoIcon className={`w-7 h-7 mb-2 ${
-                integrations.google_tasks?.status === 'connected' ? 'text-blue-400' : 'text-slate-500'
-              }`} />
+            <div className="p-4 rounded-2xl bg-slate-900/90 border border-emerald-500/40 flex flex-col items-center text-center">
+              <ListTodoIcon className="w-7 h-7 mb-2 text-blue-400" />
               <span className="text-sm font-bold text-white">Google Tasks</span>
-              <span className={`text-xs font-mono mt-1 font-semibold ${
-                integrations.google_tasks?.status === 'connected' ? 'text-emerald-400' : 'text-slate-400'
-              }`}>
-                {integrations.google_tasks?.status === 'connected' ? 'Connected' : 'Not Connected'}
+              <span className="text-xs font-mono mt-1 font-semibold text-emerald-400">
+                Connected
+              </span>
+              <span className="text-[11px] font-mono text-slate-400 mt-0.5">
+                {isUserOwnLyzr ? 'User Account' : 'Preconfigured'}
               </span>
             </div>
 
-            <div className={`p-4 rounded-2xl bg-slate-900/90 border flex flex-col items-center text-center ${
-              integrations.gmail?.status === 'connected' ? 'border-emerald-500/40' : 'border-slate-800'
-            }`}>
-              <MailIcon className={`w-7 h-7 mb-2 ${
-                integrations.gmail?.status === 'connected' ? 'text-purple-400' : 'text-slate-500'
-              }`} />
-              <span className="text-sm font-bold text-white">Gmail Drafts</span>
-              <span className={`text-xs font-mono mt-1 font-semibold ${
-                integrations.gmail?.status === 'connected' ? 'text-emerald-400' : 'text-slate-400'
-              }`}>
-                {integrations.gmail?.status === 'connected' ? 'Connected (HITL)' : 'Not Connected'}
-              </span>
-            </div>
+            {isUserOwnLyzr ? (
+              <div className="p-4 rounded-2xl bg-slate-900/90 border border-emerald-500/40 flex flex-col items-center text-center">
+                <MailIcon className="w-7 h-7 mb-2 text-purple-400" />
+                <span className="text-sm font-bold text-white">Gmail Drafts</span>
+                <span className="text-xs font-mono mt-1 font-semibold text-emerald-400">
+                  Connected (HITL)
+                </span>
+                <span className="text-[11px] font-mono text-slate-400 mt-0.5">
+                  User Account
+                </span>
+              </div>
+            ) : (
+              <div className="p-4 rounded-2xl bg-slate-900/40 border border-slate-800 flex flex-col items-center text-center opacity-80">
+                <LockIcon className="w-7 h-7 mb-2 text-slate-500" />
+                <span className="text-sm font-bold text-slate-300">Gmail Drafts</span>
+                <span className="text-xs font-mono mt-1 font-semibold text-slate-400">
+                  Disabled &amp; Inaccessible
+                </span>
+                <span className="text-[11px] font-mono text-amber-400/80 mt-0.5">
+                  Privacy Protected
+                </span>
+              </div>
+            )}
           </div>
 
-          {/* Connection input form */}
-          <div className="p-5 rounded-2xl bg-slate-900/70 border border-slate-800 space-y-3">
-            <label className="block text-sm font-semibold text-slate-200">
-              Connect Google Account (OAuth / Composio Credential ID)
-            </label>
-            <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
-              <input
-                type="text"
-                value={googleCredentialInput}
-                onChange={(e) => setGoogleCredentialInput(e.target.value)}
-                placeholder="e.g. ca_user_google_oauth_..."
-                className="flex-1 px-4 py-3 bg-slate-950 border border-slate-700 rounded-xl text-sm sm:text-base text-white placeholder-slate-500 focus:outline-none focus:border-cyan-500 font-mono"
-              />
+          {/* Mode Details & Switcher */}
+          {!isUserOwnLyzr ? (
+            <div className="p-5 rounded-2xl bg-slate-900/70 border border-slate-800 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+              <div>
+                <div className="text-sm font-semibold text-white mb-1">
+                  Operating in Mode 1: Preconfigured Lyzr
+                </div>
+                <p className="text-xs sm:text-sm text-slate-300 leading-relaxed">
+                  Calendar and Tasks work out of the box. To protect account privacy and prevent data exposure, Gmail is completely disabled on the backend. To unlock Gmail drafts, connect your personal Lyzr account.
+                </p>
+              </div>
               <button
                 type="button"
-                onClick={handleSaveGoogle}
-                disabled={savingGoogle || !googleCredentialInput.trim()}
-                className="px-6 py-3 rounded-xl bg-gradient-to-r from-blue-500 to-cyan-500 hover:from-blue-400 hover:to-cyan-400 text-white font-bold text-sm flex items-center justify-center gap-2 shadow-lg disabled:opacity-50 transition-all shrink-0"
+                onClick={() => onOpenWizard(2)}
+                className="px-5 py-2.5 rounded-xl bg-gradient-to-r from-blue-500 to-indigo-600 hover:from-blue-400 hover:to-indigo-500 text-white font-semibold text-xs sm:text-sm flex items-center gap-2 shadow-lg shrink-0 transition-all"
               >
-                <CheckCircle2Icon className="w-4 h-4" />
-                <span>{savingGoogle ? 'Verifying...' : 'Connect & Verify'}</span>
+                <span>Connect Your Own Lyzr</span>
+                <ArrowRightIcon className="w-4 h-4" />
               </button>
             </div>
-            <p className="text-xs text-slate-400 leading-relaxed">
-              If left unconfigured, actions requiring Google services will be safely skipped or held in staging until connected.
-            </p>
-          </div>
+          ) : (
+            <div className="p-5 rounded-2xl bg-slate-900/70 border border-slate-800 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+              <div>
+                <div className="text-sm font-semibold text-white mb-1">
+                  Operating in Mode 2: User&apos;s Own Lyzr Credentials
+                </div>
+                <p className="text-xs sm:text-sm text-slate-300 leading-relaxed">
+                  All actions (Calendar, Tasks, Gmail drafts) execute through your authenticated Lyzr tools. Actions are strictly isolated to your tenant.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => onOpenWizard(2)}
+                className="px-4 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 border border-slate-700 text-xs sm:text-sm text-slate-200 font-medium flex items-center gap-2 shrink-0 transition-colors"
+              >
+                <span>Edit Lyzr Settings</span>
+              </button>
+            </div>
+          )}
 
           {/* Test buttons row */}
-          {isGoogleConnected && (
-            <div className="flex flex-wrap items-center gap-3 pt-1">
-              <button
-                type="button"
-                onClick={() => handleTest('google_calendar')}
-                disabled={testingType === 'google_calendar'}
-                className="px-4 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-xs sm:text-sm text-cyan-300 font-mono font-medium border border-slate-700 transition-colors"
-              >
-                {testingType === 'google_calendar' ? 'Testing...' : 'Test Calendar Access'}
-              </button>
-              <button
-                type="button"
-                onClick={() => handleTest('google_tasks')}
-                disabled={testingType === 'google_tasks'}
-                className="px-4 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-xs sm:text-sm text-cyan-300 font-mono font-medium border border-slate-700 transition-colors"
-              >
-                {testingType === 'google_tasks' ? 'Testing...' : 'Test Google Tasks'}
-              </button>
+          <div className="flex flex-wrap items-center gap-3 pt-1">
+            <button
+              type="button"
+              onClick={() => handleTest('google_calendar')}
+              disabled={testingType === 'google_calendar'}
+              className="px-4 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-xs sm:text-sm text-cyan-300 font-mono font-medium border border-slate-700 transition-colors disabled:opacity-50"
+            >
+              {testingType === 'google_calendar' ? 'Testing...' : 'Test Calendar Access'}
+            </button>
+            <button
+              type="button"
+              onClick={() => handleTest('google_tasks')}
+              disabled={testingType === 'google_tasks'}
+              className="px-4 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-xs sm:text-sm text-cyan-300 font-mono font-medium border border-slate-700 transition-colors disabled:opacity-50"
+            >
+              {testingType === 'google_tasks' ? 'Testing...' : 'Test Google Tasks'}
+            </button>
+            {isUserOwnLyzr ? (
               <button
                 type="button"
                 onClick={() => handleTest('gmail')}
                 disabled={testingType === 'gmail'}
-                className="px-4 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-xs sm:text-sm text-cyan-300 font-mono font-medium border border-slate-700 transition-colors"
+                className="px-4 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-xs sm:text-sm text-cyan-300 font-mono font-medium border border-slate-700 transition-colors disabled:opacity-50"
               >
                 {testingType === 'gmail' ? 'Testing...' : 'Test Gmail'}
               </button>
-            </div>
-          )}
+            ) : (
+              <div className="text-xs font-mono text-slate-500 py-2.5 px-3 rounded-xl bg-slate-900 border border-slate-800 flex items-center gap-2">
+                <LockIcon className="w-3.5 h-3.5 text-slate-500" />
+                <span>Gmail testing blocked (Preconfigured Mode)</span>
+              </div>
+            )}
+          </div>
         </div>
       </div>
     </div>
