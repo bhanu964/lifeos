@@ -121,14 +121,14 @@ if STATIC_DIR.exists() and (STATIC_DIR / "index.html").exists():
     @app.get("/", summary="Root endpoint or SPA entrypoint")
     async def root_handler(request: Request):
         accept = request.headers.get("accept", "")
-        if "text/html" in accept:
-            return FileResponse(STATIC_DIR / "index.html")
-        return {
-            "message": "Welcome to AgentMemory AI API",
-            "docs": "/docs",
-            "health": "/health",
-            "version": settings.app_version,
-        }
+        if "application/json" in accept and "text/html" not in accept:
+            return {
+                "message": "Welcome to AgentMemory AI API",
+                "docs": "/docs",
+                "health": "/health",
+                "version": settings.app_version,
+            }
+        return FileResponse(STATIC_DIR / "index.html")
 
     @app.get("/{full_path:path}")
     async def serve_spa(full_path: str):
