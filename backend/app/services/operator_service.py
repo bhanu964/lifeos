@@ -18,6 +18,7 @@ from app.models.action import (
 )
 from app.models.agent import ExecutionEvent
 from app.services.action_service import ActionService
+from app.services.email_intent_service import is_explicit_email_draft_intent
 from app.services.lyzr_service import LyzrService
 from app.services.lyzr_system_prompt import LIFEOS_MASTER_SYSTEM_PROMPT
 from app.services.memory_service import MemoryService
@@ -315,12 +316,19 @@ INSTRUCTIONS:
         ]
 
         prompt_lower = prompt.lower()
-        has_email_request = any(k in prompt_lower for k in ["email", "draft", "mail"])
+        has_email_request = is_explicit_email_draft_intent(prompt)
         if has_email_request:
-            # Extract recipient or default to teammate
+            # Extract recipient or check if teammate is explicitly mentioned
             email_match = re.search(r"[\w\.-]+@[\w\.-]+\.\w+", prompt)
-            recipient = email_match.group(0) if email_match else "teammate@lifeos.ai"
-            proposed_items.append(
+            if email_match:
+                recipient = email_match.group(0)
+            elif "teammate" in prompt_lower or "team" in prompt_lower:
+                recipient = "teammate@lifeos.ai"
+            else:
+                recipient = None
+
+            if recipient:
+                proposed_items.append(
                 {
                     "type": ActionType.CREATE_GMAIL_DRAFT,
                     "title": "Draft project demo review email",

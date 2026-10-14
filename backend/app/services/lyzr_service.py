@@ -543,6 +543,68 @@ class LyzrService:
         )
         return res.get("result", {})
 
+    async def list_recent_emails(
+        self,
+        hours: int = 24,
+        max_results: int = 15,
+        query: Optional[str] = None,
+        user_id: str = "me",
+        credential_id: Optional[str] = None,
+    ) -> List[Dict[str, Any]]:
+        """
+        Retrieves real emails from Gmail from the past N hours via Composio.
+        In Preconfigured Lyzr mode: Gmail is strictly disabled and blocked to protect privacy.
+        In User's Own Lyzr mode: uses user's own Lyzr account/credential.
+        """
+        if self.is_preconfigured and not credential_id:
+            raise LyzrAPIError(
+                "Gmail is completely disabled in Preconfigured Lyzr mode to protect account privacy. Provide your own Lyzr credentials in Settings to enable Gmail.",
+                status_code=403,
+            )
+
+        effective_cred = credential_id
+        tool_cfg: Dict[str, Any] = {
+            "tool_name": "gmail",
+            "tool_source": "composio",
+            "action_names": ["GMAIL_LIST_MESSAGES"],
+            "provider_uuid": settings.gmail_provider_uuid,
+            "persist_auth": True,
+        }
+        if effective_cred:
+            tool_cfg["credential_id"] = effective_cred
+
+        tool_config = [tool_cfg]
+        q_parts = []
+        if hours and hours > 0:
+            days = max(1, round(hours / 24))
+            q_parts.append(f"newer_than:{days}d")
+        if query:
+            q_parts.append(query)
+        q = " ".join(q_parts) if q_parts else "newer_than:1d"
+
+        arguments: Dict[str, Any] = {
+            "user_id": user_id,
+            "query": q,
+            "max_results": max_results,
+        }
+        res = await self.execute_tool(
+            tool_name="GMAIL_LIST_MESSAGES",
+            tool_configs=tool_config,
+            arguments=arguments,
+            agent_id=self.agent_id,
+        )
+        res_data = res.get("result", {})
+        if isinstance(res_data, dict):
+            data_field = res_data.get("data", {})
+            if isinstance(data_field, dict):
+                return data_field.get("messages", []) or data_field.get("items", []) or []
+            elif isinstance(data_field, list):
+                return data_field
+            return res_data.get("messages", []) or res_data.get("items", []) or []
+        elif isinstance(res_data, list):
+            return res_data
+        return []
+
     async def send_telegram_message(
         self,
         text: str,

@@ -27,6 +27,13 @@ from app.services.lyzr_system_prompt import LIFEOS_MASTER_SYSTEM_PROMPT
 from app.services.memory_service import MemoryService
 from app.services.notification_service import NotificationService
 from app.services.telegram_service import TelegramService
+from app.services.email_intent_service import (
+    extract_deadlines_from_emails,
+    is_calendar_inspect_intent,
+    is_calendar_schedule_intent,
+    is_explicit_email_draft_intent,
+    is_read_emails_intent,
+)
 from app.services.user_credentials_service import UserCredentialsService
 from app.utils.calendar_utils import get_day_rfc3339_boundaries, resolve_date_from_text
 
@@ -357,6 +364,7 @@ class WorkflowService:
         transcript = workflow.transcript
         logger.info("Starting autonomous pipeline for workflow %s", workflow_id)
         user_memory, user_lyzr, user_telegram, user_actions = self._get_user_services(uid)
+        is_preconfigured = UserCredentialsService.is_using_preconfigured_lyzr(uid)
 
         try:
             # -------------------------------------------------------------
@@ -477,23 +485,41 @@ INSTRUCTIONS:
             )
 
             # Specialist 2: Data Analyst
-            has_email = any(k in transcript.lower() for k in ["email", "draft", "mail", "gmail"])
+            has_explicit_draft = is_explicit_email_draft_intent(transcript)
+            is_reading_emails = is_read_emails_intent(transcript)
+            is_sched_deadlines = is_calendar_schedule_intent(transcript)
+            is_inspect_cal = is_calendar_inspect_intent(transcript)
             has_task = any(k in transcript.lower() for k in ["task", "submission", "prepare", "finish", "todo", "agreed"])
-            calendar_keywords = ["calendar", "meeting", "meetings", "free time", "schedule", "events", "agenda", "appointment", "appointments"]
-            is_calendar_request = any(k in transcript.lower() for k in calendar_keywords)
+            # If merely checking emails without explicit task words, do not invent tasks
+            if is_reading_emails and not any(k in transcript.lower() for k in ["task", "todo", "agreed to", "submission"]):
+                has_task = False
 
             ops_detected = []
-            if is_calendar_request:
+            if is_reading_emails:
+                ops_detected.append("Gmail Message Inspection & Deadline Extraction")
+            if is_sched_deadlines:
+                ops_detected.append("Google Calendar Event Scheduling (Conditional)")
+            elif is_inspect_cal:
                 ops_detected.append("Google Calendar Inspection & Free Time Analysis")
-            if "hackathon" in transcript.lower() or has_task:
+            if has_task:
                 ops_detected.append("Google Task Creation")
-            if has_email:
+            if has_explicit_draft:
                 ops_detected.append("Gmail Draft Creation (Human Approval Required)")
+
+            low_risk_ops = []
+            if is_reading_emails:
+                low_risk_ops.append("Gmail Read")
+            if is_sched_deadlines:
+                low_risk_ops.append("Calendar Event Scheduling")
+            elif is_inspect_cal:
+                low_risk_ops.append("Calendar Availability Read")
+            if has_task:
+                low_risk_ops.append("Google Task Creation")
 
             da_out = (
                 f"Operation Structure & Risk Classification:\n"
-                f"- Low-Risk Autonomous: Google Task creation, Calendar availability read\n"
-                f"- Human Approval Required: Gmail Draft creation ({'Detected' if has_email else 'None'})\n"
+                f"- Low-Risk Autonomous: {', '.join(low_risk_ops) if low_risk_ops else 'Autonomous Read'}\n"
+                f"- Human Approval Required: {'Gmail Draft creation' if has_explicit_draft else 'None'}\n"
                 f"- Operations Detected: {', '.join(ops_detected) if ops_detected else 'General Voice Note Query'}\n"
                 f"- Delivery Channel: Telegram for real-time reporting & human approvals."
             )
@@ -521,8 +547,81 @@ INSTRUCTIONS:
             node_ie.start_time = datetime.now(timezone.utc).isoformat()
             await self.publish_event("stage_changed", workflow, {"node": "integrations_executing"})
 
-            # 1. Autonomous Google Calendar Inspection (if requested)
-            if is_calendar_request:
+            # 1. Autonomous Email Reading & Deadline Extraction (if requested)
+            if is_reading_emails:
+                if is_preconfigured:
+                    logger.info("User %s is on Preconfigured Lyzr. Gmail reading is disabled to protect privacy.", uid)
+                    email_summary = "Gmail is disabled in Preconfigured Lyzr mode to protect privacy. Connect your own Lyzr credentials in Settings to enable Gmail."
+                    workflow.specialist_outputs.append(
+                        SpecialistOutput(
+                            agent_id=settings.lyzr_fact_finder_agent_id,
+                            agent_name="Fact Finder Specialist",
+                            role="Gmail Privacy Policy",
+                            output=email_summary,
+                        )
+                    )
+                    workflow.calendar_result = {
+                        "status": "GMAIL_DISABLED_IN_PRECONFIGURED_MODE",
+                        "checked_emails": 0,
+                        "deadlines_count": 0,
+                        "summary": email_summary,
+                    }
+                else:
+                    try:
+                        recent_emails = await user_lyzr.list_recent_emails(hours=24)
+                        logger.info("Retrieved %d recent emails for user %s", len(recent_emails), uid)
+                        deadlines = extract_deadlines_from_emails(recent_emails, tz_name="Asia/Kolkata")
+                        logger.info("Extracted %d deadline(s) from emails", len(deadlines))
+
+                        if deadlines and is_sched_deadlines:
+                            for dl in deadlines:
+                                staged_cal = await user_actions.stage_action(
+                                    uid=uid,
+                                    action_type=ActionType.CREATE_CALENDAR_EVENT,
+                                    title=dl["summary"],
+                                    description=dl["description"],
+                                    parameters={
+                                        "summary": dl["summary"],
+                                        "start_datetime": dl["start_datetime"],
+                                        "description": dl["description"],
+                                        "timezone": "Asia/Kolkata",
+                                        "workflow_id": workflow_id,
+                                        "source": "email_deadline_extraction",
+                                    },
+                                )
+                                workflow.action_ids.append(staged_cal.action_id)
+                                workflow.actions.append(staged_cal)
+
+                                try:
+                                    cal_res = await user_actions.confirm_and_execute(action_id=staged_cal.action_id, uid=uid)
+                                    workflow.action_results.append(cal_res)
+                                    logger.info("Autonomous calendar event %s created and verified", staged_cal.action_id)
+                                except Exception as cal_err:
+                                    logger.error("Failed to execute calendar event action %s: %s", staged_cal.action_id, cal_err, exc_info=True)
+                                    if not workflow.error_details:
+                                        workflow.error_details = f"Calendar event error: {cal_err}"
+
+                            workflow.calendar_result = {
+                                "status": "DEADLINES_SCHEDULED",
+                                "checked_emails": len(recent_emails),
+                                "deadlines_count": len(deadlines),
+                                "deadlines": deadlines,
+                                "summary": f"Identified {len(deadlines)} deadline(s) in emails. Successfully scheduled to Google Calendar.",
+                            }
+                        else:
+                            workflow.calendar_result = {
+                                "status": "NO_DEADLINES_FOUND",
+                                "checked_emails": len(recent_emails),
+                                "deadlines_count": 0,
+                                "deadlines": [],
+                                "summary": f"Checked {len(recent_emails)} email(s) from the last 24 hours. No actionable deadlines found.",
+                            }
+                    except Exception as email_err:
+                        logger.error("Failed to read emails or process deadlines: %s", email_err, exc_info=True)
+                        workflow.error_details = f"Email processing error: {email_err}"
+
+            # 2. Autonomous Google Calendar Free Time Inspection (ONLY if specifically requested and not just scheduling deadlines)
+            if is_inspect_cal and not is_reading_emails:
                 target_d, target_d_str = resolve_date_from_text(transcript, tz_name="Asia/Kolkata")
                 time_min, time_max = get_day_rfc3339_boundaries(target_d, tz_name="Asia/Kolkata")
                 cal_title = f"Inspect Google Calendar ({target_d_str})"
@@ -555,10 +654,9 @@ INSTRUCTIONS:
                     logger.error("Failed to execute calendar inspection action %s: %s", staged_cal.action_id, cal_err, exc_info=True)
                     workflow.error_details = f"Calendar inspection error: {cal_err}"
 
-            # 2. Autonomous Task Creation (e.g. Stop Prompting Hackathon project submission)
+            # 3. Autonomous Task Creation (e.g. Stop Prompting Hackathon project submission)
             task_title = "Prepare Stop Prompting Hackathon project submission"
-            if "hackathon" in transcript.lower() or has_task:
-                # Create Task automatically (Autonomous low-risk!)
+            if ("hackathon" in transcript.lower() or has_task) and not (is_reading_emails and not any(k in transcript.lower() for k in ["task", "todo", "submission"])):
                 now = datetime.now(timezone.utc)
                 staged_task = await user_actions.stage_action(
                     uid=uid,
@@ -575,7 +673,6 @@ INSTRUCTIONS:
                 workflow.action_ids.append(staged_task.action_id)
                 workflow.actions.append(staged_task)
 
-                # Execute autonomously if integration is available!
                 try:
                     task_res = await user_actions.confirm_and_execute(action_id=staged_task.action_id, uid=uid)
                     workflow.action_results.append(task_res)
@@ -598,7 +695,7 @@ INSTRUCTIONS:
             node_ta = workflow.nodes["telegram_approval"]
             is_preconfigured = UserCredentialsService.is_using_preconfigured_lyzr(uid)
 
-            if has_email:
+            if has_explicit_draft:
                 if is_preconfigured:
                     logger.info("User %s is on Preconfigured Lyzr. Gmail is disabled to protect privacy.", uid)
                     node_ta.state = NodeState.SKIPPED
@@ -608,24 +705,29 @@ INSTRUCTIONS:
                     await self._finish_pipeline(workflow)
                     return
 
-                workflow.current_stage = WorkflowStage.AWAITING_TELEGRAM_APPROVAL
-                workflow.status = WorkflowStatus.AWAITING_APPROVAL
-                node_ta.state = NodeState.AWAITING_TELEGRAM_APPROVAL
-                node_ta.start_time = datetime.now(timezone.utc).isoformat()
-
-                # Extract or assign recipient
+                # Extract recipient - NEVER invent default or mock address
                 email_match = re.search(r"[\w\.-]+@[\w\.-]+\.\w+", transcript)
-                recipient = email_match.group(0) if email_match else "team@stop-prompting.org"
+                if email_match:
+                    recipient = email_match.group(0)
+                elif "teammate" in transcript.lower() or "the team" in transcript.lower():
+                    recipient = "team@lifeos.ai"
+                else:
+                    recipient = None
 
-                draft_subject = "Stop Prompting Hackathon: Multi-Agent Architecture & Google Integrations Update"
+                if not recipient:
+                    logger.info("Explicit draft requested but no valid recipient found in voice transcript.")
+                    node_ta.state = NodeState.SKIPPED
+                    node_ta.summary = "Draft staging omitted: Recipient email address not specified in voice instruction."
+                    node_ta.details = {"reason": "missing_recipient"}
+                    await self.publish_event("node_updated", workflow, {"node": "telegram_approval", "status": "skipped"})
+                    await self._finish_pipeline(workflow)
+                    return
+
+                draft_subject = "LifeOS Project Update"
                 draft_body = (
-                    f"Hi Team,\n\n"
-                    f"Here is an update on our LifeOS project for the Stop Prompting Hackathon (Track 2):\n\n"
-                    f"1. Voice Trigger: Completed Omi conversations stream directly to our pipeline.\n"
-                    f"2. Multi-Agent Triad: Lyzr Manager, Fact Finder, and Data Analyst coordinate task execution.\n"
-                    f"3. Google Integrations: Live Google Tasks and Google Calendar are connected.\n"
-                    f"4. Human-In-The-Loop: Gmail drafts require Telegram approval before creation.\n\n"
-                    f"Looking forward to finalizing the submission tomorrow evening.\n\n"
+                    f"Hi,\n\n"
+                    f"This is an update regarding our LifeOS workflow:\n\n"
+                    f"{transcript}\n\n"
                     f"Best regards,\nLifeOS Operator"
                 )
 
@@ -670,6 +772,10 @@ INSTRUCTIONS:
                     "recipient": recipient,
                     "telegram_dispatched": telegram_res.get("ok", False),
                 }
+                workflow.current_stage = WorkflowStage.AWAITING_TELEGRAM_APPROVAL
+                workflow.status = WorkflowStatus.AWAITING_APPROVAL
+                node_ta.state = NodeState.AWAITING_TELEGRAM_APPROVAL
+                node_ta.start_time = datetime.now(timezone.utc).isoformat()
                 await self.publish_event("stage_changed", workflow, {"node": "telegram_approval", "status": "awaiting_approval"})
                 logger.info("Workflow %s paused awaiting Telegram approval for %s", workflow_id, staged_draft.action_id)
                 # Workflow will resume in handle_telegram_approval
@@ -708,10 +814,9 @@ INSTRUCTIONS:
             node_vf.details = {"verified_action_ids": verified_items}
             await self.publish_event("node_updated", workflow, {"node": "verification"})
 
-            # Enforce strict completion semantics for calendar requests
-            calendar_keywords = ["calendar", "meeting", "meetings", "free time", "schedule", "events", "agenda", "appointment", "appointments"]
-            is_cal_req = any(k in workflow.transcript.lower() for k in calendar_keywords)
-            if is_cal_req:
+            # Enforce strict completion semantics for calendar inspection requests
+            is_cal_inspect = is_calendar_inspect_intent(workflow.transcript) and not is_read_emails_intent(workflow.transcript)
+            if is_cal_inspect:
                 cal_verified = any(
                     r.action_id in verified_items
                     for r in workflow.action_results
@@ -768,6 +873,45 @@ INSTRUCTIONS:
                     self._persist_to_disk()
                     await self.publish_event("workflow_failed", workflow, {"status": "delivery_failed"})
                     return
+            else:
+                # For non-inspection workflows (e.g. email checking & deadline scheduling):
+                # If Telegram notification is requested or available, attempt dispatch or provide configuration warning
+                user_memory, user_lyzr, user_telegram, user_actions = self._get_user_services(workflow.user_id)
+                has_tg_req = any(k in workflow.transcript.lower() for k in ["telegram", "inform me", "notify me", "tell me"])
+                user_tg_chat = user_telegram.get_effective_chat_id(workflow.user_id) if hasattr(user_telegram, "get_effective_chat_id") else None
+
+                if has_tg_req or user_tg_chat:
+                    if user_tg_chat:
+                        cal_summary = workflow.calendar_result.get("summary") if workflow.calendar_result else "Execution completed."
+                        tg_text = (
+                            f"LifeOS Execution Report\n\n"
+                            f"Spoken Request: {workflow.transcript}\n"
+                            f"Outcome: {cal_summary}"
+                        )
+                        try:
+                            tg_res = await user_telegram.send_message(chat_id=user_tg_chat, text=tg_text)
+                            if tg_res.get("ok") or tg_res.get("successful") or tg_res.get("data"):
+                                msg_id = tg_res.get("message_id") or (tg_res.get("data", {}) if isinstance(tg_res.get("data"), dict) else {}).get("message_id") or "ok"
+                                workflow.telegram_delivery = {
+                                    "status": "delivered",
+                                    "message_id": msg_id,
+                                }
+                            else:
+                                workflow.telegram_delivery = {
+                                    "status": "FAILED",
+                                    "error_message": tg_res.get("error", "Telegram delivery failed"),
+                                }
+                        except Exception as tg_err:
+                            logger.warning("Telegram notification failed: %s", tg_err)
+                            workflow.telegram_delivery = {
+                                "status": "FAILED",
+                                "error_message": str(tg_err),
+                            }
+                    else:
+                        workflow.telegram_delivery = {
+                            "status": "NEEDS_CONFIGURATION",
+                            "message": "Telegram not linked for this user. Review results on dashboard.",
+                        }
 
             # -------------------------------------------------------------
             # STAGE 9: Qdrant Memory Updated
@@ -862,7 +1006,7 @@ INSTRUCTIONS:
             await user_telegram.send_message(
                 chat_id=chat_id or user_telegram.get_effective_chat_id(workflow.user_id),
                 text=(
-                    f"✅ *Gmail Draft Created & Verified!*\n\n"
+                    f"[LifeOS] Gmail Draft Created & Verified\n\n"
                     f"Action: `{action_id}`\n"
                     f"Workflow: `{workflow_id}`\n"
                     f"Result: Saved in Gmail drafts for your final review."
@@ -880,7 +1024,7 @@ INSTRUCTIONS:
             tg_svc = user_telegram if 'user_telegram' in locals() else self.telegram
             await tg_svc.send_message(
                 chat_id=target_chat,
-                text=f"⚠️ *Execution Failed:*\n{str(exc)}",
+                text=f"[LifeOS Error] Execution Failed:\n{str(exc)}",
             )
             await self.publish_event("workflow_failed", workflow, {"error": str(exc)})
 
@@ -948,7 +1092,7 @@ INSTRUCTIONS:
             if target_chat:
                 await user_telegram.send_message(
                     chat_id=target_chat,
-                    text=f"❌ Action `{action_id}` was rejected and canceled.",
+                    text=f"[LifeOS] Action `{action_id}` was rejected and canceled.",
                 )
         except Exception as tg_err:
             logger.debug("Could not send Telegram rejection confirmation: %s", tg_err)
