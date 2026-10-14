@@ -77,34 +77,34 @@ export const Header: React.FC<HeaderProps> = ({
         <div className="flex items-center justify-between h-16">
           {/* Logo & Title */}
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-sky-600 via-sky-500 to-indigo-600 flex items-center justify-center shadow-lg shadow-sky-500/20 ring-1 ring-white/10">
-              <Brain className="w-5 h-5 text-white" />
+            <div className="w-11 h-11 rounded-xl bg-gradient-to-tr from-sky-600 via-sky-500 to-indigo-600 flex items-center justify-center shadow-lg shadow-sky-500/20 ring-1 ring-white/10 shrink-0">
+              <Brain className="w-6 h-6 text-white" />
             </div>
             <div>
               <div className="flex items-center gap-2">
-                <span className="font-extrabold text-lg tracking-tight bg-gradient-to-r from-white via-sky-100 to-sky-400 bg-clip-text text-transparent">
+                <span className="font-extrabold text-xl sm:text-2xl tracking-tight bg-gradient-to-r from-white via-sky-100 to-sky-400 bg-clip-text text-transparent">
                   LifeOS
                 </span>
-                <span className="hidden sm:inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold tracking-wide bg-sky-950/80 text-sky-400 border border-sky-800/50">
+                <span className="hidden sm:inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold tracking-wide bg-sky-950/80 text-sky-300 border border-sky-800/60">
                   Personal AI Operator
                 </span>
               </div>
-              <p className="text-xs text-slate-400 font-medium">Track 2: Collaborative Multi-Agent Workflows</p>
+              <p className="text-xs sm:text-sm text-slate-300 font-medium">Track 2: Collaborative Multi-Agent Workflows</p>
             </div>
           </div>
 
           {/* Navigation Links */}
-          <nav className="hidden lg:flex items-center gap-1 bg-slate-900/60 p-1 rounded-xl border border-slate-800/60">
+          <nav className="hidden lg:flex items-center gap-1.5 bg-slate-900/80 p-1.5 rounded-xl border border-slate-800/80">
             {tabs.map((tab) => {
               const active = currentTab === tab.id;
               return (
                 <button
                   key={tab.id}
                   onClick={() => onTabChange(tab.id)}
-                  className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all duration-200 ${
+                  className={`px-3.5 py-2 rounded-lg text-sm font-semibold transition-all duration-200 ${
                     active
-                      ? 'bg-sky-600 text-white shadow-sm shadow-sky-600/30'
-                      : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/50'
+                      ? 'bg-sky-600 text-white shadow-md shadow-sky-600/30'
+                      : 'text-slate-300 hover:text-white hover:bg-slate-800/70'
                   }`}
                 >
                   {tab.label}
@@ -118,10 +118,10 @@ export const Header: React.FC<HeaderProps> = ({
             {user ? (
               <div className="flex items-center gap-2">
                 {/* User profile badge */}
-                <div className="flex items-center bg-slate-900/90 border border-cyan-500/30 rounded-xl px-2.5 py-1 text-xs">
-                  <div className="w-2 h-2 rounded-full bg-emerald-400 mr-2 shrink-0 animate-pulse" />
-                  <span className="text-slate-400 text-[11px] mr-1 hidden sm:inline">Tenant:</span>
-                  <span className="font-medium text-cyan-200 max-w-[120px] truncate" title={user.email}>
+                <div className="flex items-center bg-slate-900/90 border border-cyan-500/40 rounded-xl px-3 py-1.5 text-sm">
+                  <div className="w-2.5 h-2.5 rounded-full bg-emerald-400 mr-2 shrink-0 animate-pulse" />
+                  <span className="text-slate-400 text-xs mr-1 hidden sm:inline">Tenant:</span>
+                  <span className="font-semibold text-cyan-200 max-w-[140px] truncate" title={user.email}>
                     {user.email.split('@')[0]}
                   </span>
                 </div>
@@ -130,9 +130,9 @@ export const Header: React.FC<HeaderProps> = ({
                 <button
                   onClick={onOpenWizard}
                   title="Open Integration Setup Wizard"
-                  className="hidden sm:flex items-center gap-1 px-2.5 py-1.5 rounded-xl bg-cyan-950/60 hover:bg-cyan-900/60 border border-cyan-500/40 text-cyan-300 text-xs font-medium transition-colors"
+                  className="hidden sm:flex items-center gap-1.5 px-3 py-2 rounded-xl bg-cyan-950/70 hover:bg-cyan-900/70 border border-cyan-500/50 text-cyan-200 text-sm font-semibold transition-colors"
                 >
-                  <Wand2 className="w-3.5 h-3.5" />
+                  <Wand2 className="w-4 h-4" />
                   <span>Setup</span>
                 </button>
 
@@ -140,7 +140,7 @@ export const Header: React.FC<HeaderProps> = ({
                 <button
                   onClick={onLogout}
                   title="Sign out of LifeOS"
-                  className="p-1.5 rounded-xl bg-slate-900/80 border border-slate-800 text-slate-400 hover:text-rose-300 hover:border-rose-500/40 transition-colors"
+                  className="p-2 rounded-xl bg-slate-900/80 border border-slate-800 text-slate-300 hover:text-rose-300 hover:border-rose-500/50 transition-colors"
                 >
                   <LogOut className="w-4 h-4" />
                 </button>
@@ -198,70 +198,70 @@ export const Header: React.FC<HeaderProps> = ({
       </div>
 
       {/* Integration Status Bar */}
-      <div className="border-t border-slate-800/40 bg-slate-950/60 px-4 sm:px-6 lg:px-8 py-1.5">
-        <div className="max-w-7xl mx-auto flex flex-wrap items-center justify-between gap-y-1 gap-x-4 text-[11px]">
-          <div className="flex items-center gap-4 flex-wrap">
+      <div className="border-t border-slate-800/60 bg-slate-950/80 px-4 sm:px-6 lg:px-8 py-2">
+        <div className="max-w-7xl mx-auto flex flex-wrap items-center justify-between gap-y-1.5 gap-x-5 text-xs sm:text-sm">
+          <div className="flex items-center gap-5 flex-wrap">
             {/* FastAPI Status */}
-            <div className="flex items-center gap-1.5">
+            <div className="flex items-center gap-2">
               <span
-                className={`w-2 h-2 rounded-full ${
-                  isHealthy ? 'bg-emerald-500 shadow-sm shadow-emerald-500/50' : 'bg-rose-500 animate-pulse'
+                className={`w-2.5 h-2.5 rounded-full ${
+                  isHealthy ? 'bg-emerald-400 shadow-sm shadow-emerald-400/50' : 'bg-rose-500 animate-pulse'
                 }`}
               />
-              <span className="text-slate-400 font-medium">FastAPI Backend:</span>
-              <span className={isHealthy ? 'text-emerald-400 font-mono' : 'text-rose-400 font-mono'}>
-                {isHealthy ? 'Online (8000)' : 'Offline'}
+              <span className="text-slate-300 font-medium">FastAPI:</span>
+              <span className={isHealthy ? 'text-emerald-400 font-mono font-semibold' : 'text-rose-400 font-mono'}>
+                {isHealthy ? 'Online' : 'Offline'}
               </span>
             </div>
 
             {/* Qdrant Status */}
-            <div className="flex items-center gap-1.5">
-              <Database className="w-3 h-3 text-sky-400" />
-              <span className="text-slate-400">Qdrant Cloud:</span>
-              <span className={health?.integrations.qdrant_configured ? 'text-emerald-400 font-mono' : 'text-amber-400'}>
+            <div className="flex items-center gap-2">
+              <Database className="w-3.5 h-3.5 text-sky-400" />
+              <span className="text-slate-300 font-medium">Qdrant Cloud:</span>
+              <span className={health?.integrations.qdrant_configured ? 'text-emerald-400 font-mono font-semibold' : 'text-amber-400 font-medium'}>
                 {health?.integrations.qdrant_configured ? 'Connected (384-d)' : 'Unconfigured'}
               </span>
             </div>
 
             {/* Lyzr Status */}
-            <div className="flex items-center gap-1.5">
-              <Cpu className="w-3 h-3 text-indigo-400" />
-              <span className="text-slate-400">Lyzr Agents:</span>
-              <span className={health?.integrations.lyzr_configured ? 'text-emerald-400 font-mono' : 'text-amber-400'}>
+            <div className="flex items-center gap-2">
+              <Cpu className="w-3.5 h-3.5 text-indigo-400" />
+              <span className="text-slate-300 font-medium">Lyzr Agents:</span>
+              <span className={health?.integrations.lyzr_configured ? 'text-emerald-400 font-mono font-semibold' : 'text-amber-400 font-medium'}>
                 {health?.integrations.lyzr_configured ? 'Active' : 'Unconfigured'}
               </span>
             </div>
 
             {/* Google Calendar Status */}
-            <div className="flex items-center gap-1.5">
-              <Calendar className="w-3 h-3 text-blue-400" />
-              <span className="text-slate-400">Google Calendar:</span>
-              <span className="text-emerald-400 font-mono">Connected</span>
+            <div className="flex items-center gap-2">
+              <Calendar className="w-3.5 h-3.5 text-blue-400" />
+              <span className="text-slate-300 font-medium">Calendar:</span>
+              <span className="text-emerald-400 font-mono font-semibold">Connected</span>
             </div>
 
             {/* Google Tasks Status */}
-            <div className="flex items-center gap-1.5">
-              <ListTodo className="w-3 h-3 text-emerald-400" />
-              <span className="text-slate-400">Google Tasks:</span>
-              <span className="text-emerald-400 font-mono">Connected</span>
+            <div className="flex items-center gap-2">
+              <ListTodo className="w-3.5 h-3.5 text-emerald-400" />
+              <span className="text-slate-300 font-medium">Tasks:</span>
+              <span className="text-emerald-400 font-mono font-semibold">Connected</span>
             </div>
 
             {/* Gmail Status */}
-            <div className="flex items-center gap-1.5">
-              <Mail className="w-3 h-3 text-sky-400" />
-              <span className="text-slate-400">Gmail:</span>
-              <span className="text-emerald-400 font-mono">Connected (Drafts)</span>
+            <div className="flex items-center gap-2">
+              <Mail className="w-3.5 h-3.5 text-sky-400" />
+              <span className="text-slate-300 font-medium">Gmail:</span>
+              <span className="text-emerald-400 font-mono font-semibold">Connected</span>
             </div>
 
             {/* Telegram Status */}
-            <div className="flex items-center gap-1.5">
-              <Bell className="w-3 h-3 text-indigo-400" />
-              <span className="text-slate-400">Telegram:</span>
-              <span className="text-emerald-400 font-mono">@Ididhswkje_bot</span>
+            <div className="flex items-center gap-2">
+              <Bell className="w-3.5 h-3.5 text-indigo-400" />
+              <span className="text-slate-300 font-medium">Telegram:</span>
+              <span className="text-emerald-400 font-mono font-semibold">@Ididhswkje_bot</span>
             </div>
           </div>
 
-          <div className="text-slate-500 text-[10px] hidden sm:block">
+          <div className="text-slate-400 text-xs hidden sm:block font-mono">
             {health?.timestamp ? `Synced: ${new Date(health.timestamp).toLocaleTimeString()}` : 'Connecting...'}
           </div>
         </div>

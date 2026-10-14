@@ -140,7 +140,7 @@ function LifeOSDashboard() {
           <div className="max-w-7xl mx-auto flex items-center gap-3">
             <span className="text-amber-400 text-sm">⚠️</span>
             <div>
-              <strong className="text-amber-300">Vercel Environment Warning: </strong>
+              <strong className="text-amber-300">Configuration Notice: </strong>
               <span>{api.getConfigError()}</span>
             </div>
           </div>

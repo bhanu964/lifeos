@@ -222,110 +222,110 @@ export const IntegrationsSettingsView: React.FC<IntegrationsSettingsViewProps> =
       {/* Grid of All Integrations */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         {/* Qdrant */}
-        <div className="p-5 rounded-2xl bg-[#0b1324] border border-slate-800 space-y-3">
+        <div className="p-6 rounded-2xl bg-[#0b1324] border border-slate-800 space-y-3.5 shadow-xl">
           <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2.5">
               <DatabaseIcon className="w-5 h-5 text-cyan-400" />
-              <h4 className="text-sm font-semibold text-white">Qdrant Cloud</h4>
+              <h4 className="text-base font-bold text-white">Qdrant Cloud</h4>
             </div>
-            <span className="px-2.5 py-0.5 rounded-full text-[10px] font-mono bg-emerald-950 border border-emerald-500/40 text-emerald-300">
+            <span className="px-3 py-1 rounded-full text-xs font-mono bg-emerald-950 border border-emerald-500/40 text-emerald-300 font-bold">
               ● Connected
             </span>
           </div>
-          <p className="text-xs text-slate-400">
-            384-dimensional FastEmbed persistent vector memory with tenant payload filter on <code className="text-cyan-300">uid</code>.
+          <p className="text-sm text-slate-300 leading-relaxed">
+            384-dimensional FastEmbed persistent vector memory with tenant payload filter on <code className="text-cyan-300 font-mono">uid</code>.
           </p>
-          <div className="text-[11px] font-mono text-slate-500 space-y-1">
-            <div>Collection: <span className="text-slate-300">agentmemory_memories</span></div>
-            <div>Cluster: <span className="text-slate-300">Shared High-Performance Cloud</span></div>
+          <div className="text-xs font-mono text-slate-400 space-y-1">
+            <div>Collection: <span className="text-slate-200">agentmemory_memories</span></div>
+            <div>Cluster: <span className="text-slate-200">Shared High-Performance Cloud</span></div>
           </div>
           <button
             type="button"
             onClick={() => handleTest('qdrant')}
             disabled={testingType === 'qdrant'}
-            className="w-full py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-xs text-cyan-300 font-mono border border-slate-700/80"
+            className="w-full py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-xs sm:text-sm text-cyan-300 font-mono font-semibold border border-slate-700/80 transition-colors"
           >
             {testingType === 'qdrant' ? 'Testing...' : 'Test Cluster Connectivity'}
           </button>
         </div>
 
         {/* Lyzr */}
-        <div className="p-5 rounded-2xl bg-[#0b1324] border border-slate-800 space-y-3">
+        <div className="p-6 rounded-2xl bg-[#0b1324] border border-slate-800 space-y-3.5 shadow-xl">
           <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2.5">
               <BotIcon className="w-5 h-5 text-blue-400" />
-              <h4 className="text-sm font-semibold text-white">Lyzr Multi-Agent Triad</h4>
+              <h4 className="text-base font-bold text-white">Lyzr Multi-Agent Triad</h4>
             </div>
-            <span className="px-2.5 py-0.5 rounded-full text-[10px] font-mono bg-emerald-950 border border-emerald-500/40 text-emerald-300">
+            <span className="px-3 py-1 rounded-full text-xs font-mono bg-emerald-950 border border-emerald-500/40 text-emerald-300 font-bold">
               ● Active
             </span>
           </div>
-          <p className="text-xs text-slate-400">
+          <p className="text-sm text-slate-300 leading-relaxed">
             Manager, Fact Finder, and Data Analyst agents orchestrating daily plans and voice task execution.
           </p>
-          <div className="text-[11px] font-mono text-slate-500 space-y-1">
-            <div>Manager ID: <span className="text-slate-300">6acdcd0f8a6a...</span></div>
-            <div>Mode: <span className="text-slate-300">Composio Autonomous Execution</span></div>
+          <div className="text-xs font-mono text-slate-400 space-y-1">
+            <div>Manager ID: <span className="text-slate-200">6acdcd0f8a6a...</span></div>
+            <div>Mode: <span className="text-slate-200">Composio Autonomous Execution</span></div>
           </div>
           <button
             type="button"
             onClick={() => handleTest('lyzr')}
             disabled={testingType === 'lyzr'}
-            className="w-full py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-xs text-cyan-300 font-mono border border-slate-700/80"
+            className="w-full py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-xs sm:text-sm text-cyan-300 font-mono font-semibold border border-slate-700/80 transition-colors"
           >
             {testingType === 'lyzr' ? 'Testing...' : 'Verify Agent Orchestration'}
           </button>
         </div>
 
         {/* Google Calendar */}
-        <div className="p-5 rounded-2xl bg-[#0b1324] border border-slate-800 space-y-3">
+        <div className="p-6 rounded-2xl bg-[#0b1324] border border-slate-800 space-y-3.5 shadow-xl">
           <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2.5">
               <CalendarIcon className="w-5 h-5 text-amber-400" />
-              <h4 className="text-sm font-semibold text-white">Google Calendar</h4>
+              <h4 className="text-base font-bold text-white">Google Calendar</h4>
             </div>
-            <span className="px-2.5 py-0.5 rounded-full text-[10px] font-mono bg-emerald-950 border border-emerald-500/40 text-emerald-300">
+            <span className="px-3 py-1 rounded-full text-xs font-mono bg-emerald-950 border border-emerald-500/40 text-emerald-300 font-bold">
               ● Connected
             </span>
           </div>
-          <p className="text-xs text-slate-400">
+          <p className="text-sm text-slate-300 leading-relaxed">
             Reads upcoming meetings, evaluates free time windows, and creates verified calendar events.
           </p>
-          <div className="text-[11px] font-mono text-slate-500">
-            Provider: <span className="text-slate-300">Composio on Lyzr</span>
+          <div className="text-xs font-mono text-slate-400">
+            Provider: <span className="text-slate-200">Composio on Lyzr</span>
           </div>
           <button
             type="button"
             onClick={() => handleTest('google_calendar')}
             disabled={testingType === 'google_calendar'}
-            className="w-full py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-xs text-cyan-300 font-mono border border-slate-700/80"
+            className="w-full py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-xs sm:text-sm text-cyan-300 font-mono font-semibold border border-slate-700/80 transition-colors"
           >
             {testingType === 'google_calendar' ? 'Testing...' : 'Test Calendar Access'}
           </button>
         </div>
 
         {/* Google Tasks & Gmail */}
-        <div className="p-5 rounded-2xl bg-[#0b1324] border border-slate-800 space-y-3">
+        <div className="p-6 rounded-2xl bg-[#0b1324] border border-slate-800 space-y-3.5 shadow-xl">
           <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2.5">
               <CheckCircle2Icon className="w-5 h-5 text-purple-400" />
-              <h4 className="text-sm font-semibold text-white">Google Tasks & Gmail</h4>
+              <h4 className="text-base font-bold text-white">Google Tasks & Gmail</h4>
             </div>
-            <span className="px-2.5 py-0.5 rounded-full text-[10px] font-mono bg-emerald-950 border border-emerald-500/40 text-emerald-300">
+            <span className="px-3 py-1 rounded-full text-xs font-mono bg-emerald-950 border border-emerald-500/40 text-emerald-300 font-bold">
               ● Connected
             </span>
           </div>
-          <p className="text-xs text-slate-400">
+          <p className="text-sm text-slate-300 leading-relaxed">
             Autonomous task verification and staged email drafts requiring explicit Telegram approval.
           </p>
-          <div className="text-[11px] font-mono text-slate-500">
-            Draft Policy: <span className="text-slate-300">Never Auto-Send without Human Approval</span>
+          <div className="text-xs font-mono text-slate-400">
+            Draft Policy: <span className="text-slate-200">Never Auto-Send without Human Approval</span>
           </div>
           <button
             type="button"
             onClick={() => handleTest('gmail')}
             disabled={testingType === 'gmail'}
-            className="w-full py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-xs text-cyan-300 font-mono border border-slate-700/80"
+            className="w-full py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-xs sm:text-sm text-cyan-300 font-mono font-semibold border border-slate-700/80 transition-colors"
           >
             {testingType === 'gmail' ? 'Testing...' : 'Test Gmail Integration'}
           </button>

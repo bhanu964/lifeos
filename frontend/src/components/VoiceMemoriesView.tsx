@@ -293,77 +293,77 @@ export const VoiceMemoriesView: React.FC<VoiceMemoriesViewProps> = ({
                 className="glass-card rounded-2xl p-5 border transition-all duration-200 hover:shadow-lg space-y-3"
               >
                 {/* Card Top Row: Badges, Score, and Actions */}
-                <div className="flex flex-wrap items-center justify-between gap-2">
+                <div className="flex flex-wrap items-center justify-between gap-2.5">
                   <div className="flex items-center gap-2 flex-wrap">
                     {/* Source Badge */}
                     <span
-                      className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[11px] font-semibold border ${badge.color}`}
+                      className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-lg text-xs font-bold border ${badge.color}`}
                     >
-                      <BadgeIcon className="w-3 h-3" />
+                      <BadgeIcon className="w-3.5 h-3.5" />
                       {badge.label}
                     </span>
 
                     {/* Speaker Tag if present */}
                     {item.metadata?.speaker && (
-                      <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-mono bg-slate-900 border border-slate-800 text-slate-300">
-                        <User className="w-3 h-3 text-sky-400" />
+                      <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-lg text-xs font-mono bg-slate-900 border border-slate-800 text-slate-200">
+                        <User className="w-3.5 h-3.5 text-sky-400" />
                         {item.metadata.speaker}
                       </span>
                     )}
 
                     {/* Cosine Score if semantic search */}
                     {item.score !== null && item.score !== undefined && (
-                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-mono bg-emerald-950/80 text-emerald-300 border border-emerald-800/60">
+                      <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-xs font-mono bg-emerald-950/80 text-emerald-300 border border-emerald-800/60 font-semibold">
                         Score: {(item.score * 100).toFixed(1)}%
                       </span>
                     )}
 
                     {/* Timestamp */}
-                    <span className="inline-flex items-center gap-1 text-[11px] text-slate-500 font-mono">
-                      <Clock className="w-3 h-3" />
+                    <span className="inline-flex items-center gap-1.5 text-xs text-slate-400 font-mono">
+                      <Clock className="w-3.5 h-3.5" />
                       {item.created_at ? new Date(item.created_at).toLocaleString() : 'Unknown date'}
                     </span>
                   </div>
 
                   {/* Actions: Copy ID & Delete */}
-                  <div className="flex items-center gap-1.5">
+                  <div className="flex items-center gap-2">
                     <button
                       onClick={() => handleCopyId(item.id)}
                       title="Copy Memory ID"
-                      className="p-1.5 rounded-lg bg-slate-900 border border-slate-800 hover:border-slate-700 text-slate-400 hover:text-slate-200 text-xs transition-colors"
+                      className="p-2 rounded-lg bg-slate-900 border border-slate-800 hover:border-slate-700 text-slate-300 hover:text-white text-xs transition-colors"
                     >
-                      {isCopied ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
+                      {isCopied ? <Check className="w-4 h-4 text-emerald-400" /> : <Copy className="w-4 h-4" />}
                     </button>
                     <button
                       onClick={() => handleDelete(item.id)}
                       disabled={isDeleting}
                       title="Delete Memory from Qdrant"
-                      className="p-1.5 rounded-lg bg-slate-900 border border-slate-800 hover:border-rose-900/50 hover:bg-rose-950/30 text-slate-400 hover:text-rose-400 text-xs transition-colors disabled:opacity-50"
+                      className="p-2 rounded-lg bg-slate-900 border border-slate-800 hover:border-rose-900/50 hover:bg-rose-950/30 text-slate-300 hover:text-rose-400 text-xs transition-colors disabled:opacity-50"
                     >
-                      <Trash2 className="w-3.5 h-3.5" />
+                      <Trash2 className="w-4 h-4" />
                     </button>
                   </div>
                 </div>
 
                 {/* Card Content (Transcript Presentation) */}
-                <div className="space-y-2">
+                <div className="space-y-2.5">
                   {/* Primary Presentation Field */}
-                  <div className="bg-slate-950/60 p-4 rounded-xl border border-slate-800/80 text-slate-100 text-sm leading-relaxed whitespace-pre-wrap font-sans selection:bg-sky-500/30">
+                  <div className="bg-slate-950/60 p-4 rounded-xl border border-slate-800/80 text-slate-100 text-base leading-relaxed whitespace-pre-wrap font-sans selection:bg-sky-500/30">
                     {item.display_text || item.content}
                   </div>
 
                   {/* If product names were normalized, clearly display both fields without silent rewrite */}
                   {item.display_text && item.display_text !== item.content && (
-                    <div className="p-3 rounded-xl bg-slate-900/70 border border-amber-500/20 text-xs space-y-1.5">
-                      <div className="flex items-center justify-between text-[11px]">
+                    <div className="p-3.5 rounded-xl bg-slate-900/70 border border-amber-500/20 text-xs space-y-2">
+                      <div className="flex items-center justify-between text-xs">
                         <span className="text-amber-300/90 font-medium flex items-center gap-1.5">
-                          <Sparkles className="w-3 h-3 text-amber-400" />
+                          <Sparkles className="w-3.5 h-3.5 text-amber-400" />
                           Normalized Product Terminology Clarification
                         </span>
-                        <span className="text-[10px] font-mono text-slate-500">Original preserved in vector memory</span>
+                        <span className="text-xs font-mono text-slate-400">Original preserved in vector memory</span>
                       </div>
-                      <div className="text-[11px] font-mono text-slate-300 bg-slate-950/80 p-2 rounded-lg border border-slate-800">
-                        <span className="text-slate-500 text-[10px] uppercase tracking-wider block font-sans font-semibold">
+                      <div className="text-xs font-mono text-slate-200 bg-slate-950/80 p-2.5 rounded-lg border border-slate-800">
+                        <span className="text-slate-400 text-xs uppercase tracking-wider block font-sans font-semibold mb-1">
                           Original Spoken Audio Evidence:
                         </span>
                         "{item.content}"
@@ -376,22 +376,22 @@ export const VoiceMemoriesView: React.FC<VoiceMemoriesViewProps> = ({
                 <div className="pt-1">
                   <button
                     onClick={() => setExpandedId(isExpanded ? null : item.id)}
-                    className="flex items-center gap-1 text-[11px] text-slate-400 hover:text-sky-400 font-mono transition-colors"
+                    className="flex items-center gap-1.5 text-xs text-slate-400 hover:text-sky-300 font-mono transition-colors"
                   >
                     <span>ID: {item.id.slice(0, 8)}...{item.id.slice(-6)}</span>
-                    {isExpanded ? <ChevronUp className="w-3 h-3 ml-1" /> : <ChevronDown className="w-3 h-3 ml-1" />}
-                    <span className="text-slate-500 ml-1">
+                    {isExpanded ? <ChevronUp className="w-3.5 h-3.5 ml-1" /> : <ChevronDown className="w-3.5 h-3.5 ml-1" />}
+                    <span className="text-slate-400 ml-1">
                       {isExpanded ? 'Hide Payload Metadata' : 'View Payload Metadata'}
                     </span>
                   </button>
 
                   {isExpanded && (
-                    <div className="mt-3 p-3.5 rounded-xl bg-slate-950/90 border border-slate-800 text-[11px] font-mono text-slate-300 space-y-2 overflow-x-auto">
-                      <div className="flex items-center justify-between text-slate-500 border-b border-slate-800/60 pb-1">
+                    <div className="mt-3 p-4 rounded-xl bg-slate-950/90 border border-slate-800 text-xs font-mono text-slate-300 space-y-2 overflow-x-auto">
+                      <div className="flex items-center justify-between text-slate-400 border-b border-slate-800/60 pb-1.5">
                         <span>Payload Metadata (Qdrant Point)</span>
                         <span>User: {item.uid}</span>
                       </div>
-                      <pre className="text-xs text-sky-200/90 leading-tight">
+                      <pre className="text-xs text-sky-200/90 leading-normal">
                         {JSON.stringify(item.metadata, null, 2)}
                       </pre>
                     </div>

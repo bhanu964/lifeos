@@ -240,26 +240,26 @@ export const TelegramNotificationsView: React.FC<TelegramNotificationsViewProps>
                       >
                         {notif.status.replace(/_/g, ' ')}
                       </span>
-                      <span className="text-xs font-medium text-slate-300">
+                      <span className="text-sm font-semibold text-slate-200">
                         Event: {notif.event_type}
                       </span>
                       {notif.action_id && (
-                        <span className="text-[11px] font-mono text-slate-500">
+                        <span className="text-xs font-mono text-slate-400">
                           ({notif.action_id})
                         </span>
                       )}
                     </div>
-                    <span className="text-[11px] font-mono text-slate-500">
+                    <span className="text-xs font-mono text-slate-400">
                       {new Date(notif.timestamp).toLocaleString()}
                     </span>
                   </div>
 
-                  <div className="p-3 rounded-lg bg-slate-950/80 border border-slate-800/80 text-xs text-slate-200 whitespace-pre-wrap font-sans">
+                  <div className="p-3.5 rounded-xl bg-slate-950/80 border border-slate-800/80 text-sm text-slate-100 whitespace-pre-wrap font-sans leading-relaxed">
                     {notif.text}
                   </div>
 
                   {notif.error_message && (
-                    <div className="text-[11px] text-amber-400/90 font-mono">
+                    <div className="text-xs text-amber-400/90 font-mono">
                       Notice: {notif.error_message}
                     </div>
                   )}
