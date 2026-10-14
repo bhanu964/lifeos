@@ -217,6 +217,13 @@ class WorkflowService:
     def get_workflow(self, workflow_id: str) -> Optional[WorkflowRecord]:
         return self._workflows.get(workflow_id)
 
+    def get_workflow_by_action_id(self, action_id: str) -> Optional[WorkflowRecord]:
+        """Finds any workflow that contains the given action_id."""
+        for wf in self._workflows.values():
+            if wf.actions and any(act.action_id == action_id for act in wf.actions):
+                return wf
+        return None
+
     def list_workflows(self, user_id: Optional[str] = None, limit: int = 50) -> List[WorkflowRecord]:
         items = list(self._workflows.values())
         if user_id:
@@ -778,6 +785,9 @@ INSTRUCTIONS:
             # 2. Execute Action (CREATE_GMAIL_DRAFT)
             exec_res = await self.actions.confirm_and_execute(action_id=action_id, uid=workflow.user_id)
             workflow.action_results.append(exec_res)
+            for act in workflow.actions:
+                if act.action_id == action_id:
+                    act.status = ActionStatus.COMPLETED
 
             # 3. Notify user via Telegram of success
             await self.telegram.send_message(
@@ -804,27 +814,71 @@ INSTRUCTIONS:
             await self.publish_event("workflow_failed", workflow, {"error": str(exc)})
 
     async def handle_telegram_rejection(self, action_id: str, workflow_id: str, chat_id: Optional[str] = None):
-        """Called when user taps [Reject Draft] in Telegram."""
+        """Called when user taps [Reject Draft] in Telegram or UI."""
         workflow = self.get_workflow(workflow_id)
         if not workflow:
+            # Fallback: lookup by action ID
+            workflow = self.get_workflow_by_action_id(action_id)
+        if not workflow:
+            logger.warning("Could not find workflow for rejected action %s (wf: %s)", action_id, workflow_id)
             return
 
-        logger.info("Telegram rejection received for action %s in workflow %s", action_id, workflow_id)
-        self.actions.reject_action(action_id=action_id, uid=workflow.user_id)
+        logger.info("Telegram rejection received for action %s in workflow %s", action_id, workflow.workflow_id)
+        try:
+            self.actions.reject_action(action_id=action_id, uid=workflow.user_id)
+        except Exception as act_err:
+            logger.debug("Action already rejected or not in staged state: %s", act_err)
 
-        node_ta = workflow.nodes["telegram_approval"]
-        node_ta.state = NodeState.FAILED
-        node_ta.end_time = datetime.now(timezone.utc).isoformat()
-        node_ta.summary = f"Rejected via Telegram by user. Action canceled."
+        for act in workflow.actions:
+            if act.action_id == action_id:
+                act.status = ActionStatus.REJECTED
+
+        now_iso = datetime.now(timezone.utc).isoformat()
+
+        # Update Node 7: Telegram Approval
+        node_ta = workflow.nodes.get("telegram_approval")
+        if node_ta:
+            node_ta.state = NodeState.FAILED
+            node_ta.end_time = now_iso
+            node_ta.summary = "Action rejected by user. Operation canceled."
+
+        # Update Node 8: Verification
+        node_ver = workflow.nodes.get("verification")
+        if node_ver:
+            node_ver.state = NodeState.SKIPPED
+            node_ver.end_time = now_iso
+            node_ver.summary = "Skipped: Action was rejected by user."
+
+        # Update Node 9: Memory Updated
+        node_mem = workflow.nodes.get("memory_updated")
+        if node_mem:
+            node_mem.state = NodeState.SKIPPED
+            node_mem.end_time = now_iso
+            node_mem.summary = "Skipped: No executed action to commit to memory."
+
+        # Update Node 10: Completed
+        node_comp = workflow.nodes.get("completed")
+        if node_comp:
+            node_comp.state = NodeState.COMPLETED
+            node_comp.end_time = now_iso
+            node_comp.summary = "Workflow concluded (action canceled by user)."
 
         workflow.status = WorkflowStatus.REJECTED
         workflow.current_stage = WorkflowStage.REJECTED
-        await self.publish_event("workflow_rejected", workflow, {"action_id": action_id})
+        self._persist_to_disk()
 
-        await self.telegram.send_message(
-            chat_id=chat_id or self.telegram.get_effective_chat_id(workflow.user_id),
-            text=f"❌ Action `{action_id}` was rejected and canceled.",
-        )
+        await self.publish_event("workflow_rejected", workflow, {"action_id": action_id})
+        await self.publish_event("workflow_updated", workflow, {"action_id": action_id})
+
+        try:
+            target_chat = chat_id or self.telegram.get_effective_chat_id(workflow.user_id)
+            if target_chat:
+                await self.telegram.send_message(
+                    chat_id=target_chat,
+                    text=f"❌ Action `{action_id}` was rejected and canceled.",
+                )
+        except Exception as tg_err:
+            logger.debug("Could not send Telegram rejection confirmation: %s", tg_err)
 
     async def handle_telegram_clarification(self, workflow_id: str, action_id: str, user_reply: str, chat_id: Optional[str]):
         """Called when user replies to a clarification question."""

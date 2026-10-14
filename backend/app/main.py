@@ -55,8 +55,16 @@ async def lifespan(app: FastAPI):
             logger.warning("QDRANT_URL is not set. Memory vector storage will be unavailable.")
     except Exception as exc:
         logger.error("Error during Qdrant startup verification: %s", exc)
-    finally:
-        await qdrant.close()
+    # Auto-configure Telegram webhook if on Render or public URL provided
+    import os
+    effective_base_url = settings.public_base_url or os.getenv("RENDER_EXTERNAL_URL") or "https://lifeos-2-zdux.onrender.com"
+    if settings.telegram_bot_token and effective_base_url:
+        try:
+            from app.services.telegram_service import TelegramService
+            tg = TelegramService()
+            await tg.ensure_webhook(effective_base_url)
+        except Exception as tg_exc:
+            logger.warning("Could not auto-configure Telegram webhook on startup: %s", tg_exc)
 
     yield
 
@@ -108,6 +116,19 @@ app.include_router(memories_router)
 app.include_router(lifeos_router)
 app.include_router(auth_router)
 app.include_router(integrations_router)
+
+
+@app.post("/telegram/webhook", summary="Telegram Bot webhook receiver fallback")
+async def telegram_webhook_fallback(request: Request):
+    from app.services.telegram_service import TelegramService
+    try:
+        tg = TelegramService()
+        data = await request.json()
+        res = await tg.handle_update(data)
+        return {"ok": True, "result": res}
+    except Exception as exc:
+        logger.error("Error processing Telegram fallback webhook: %s", exc)
+        return {"ok": False, "error": str(exc)}
 
 
 STATIC_DIR = Path("/app/static")

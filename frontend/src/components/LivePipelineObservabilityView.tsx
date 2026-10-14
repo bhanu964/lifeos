@@ -20,6 +20,8 @@ import {
   Sparkles,
   Zap,
   Terminal,
+  Check,
+  X,
 } from 'lucide-react';
 import {
   WorkflowRecord,
@@ -46,7 +48,32 @@ export const LivePipelineObservabilityView: React.FC<LivePipelineObservabilityVi
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
   const [simText, setSimText] = useState<string>('');
   const [simulating, setSimulating] = useState<boolean>(false);
+  const [actionProcessing, setActionProcessing] = useState<string | null>(null);
   const eventSourceRef = useRef<EventSource | null>(null);
+
+  const handleActionConfirm = async (actionId: string) => {
+    setActionProcessing(actionId);
+    try {
+      await api.confirmAction(actionId, uid);
+      fetchWorkflows();
+    } catch (err) {
+      console.error('Failed to confirm action:', err);
+    } finally {
+      setActionProcessing(null);
+    }
+  };
+
+  const handleActionReject = async (actionId: string) => {
+    setActionProcessing(actionId);
+    try {
+      await api.rejectAction(actionId, uid);
+      fetchWorkflows();
+    } catch (err) {
+      console.error('Failed to reject action:', err);
+    } finally {
+      setActionProcessing(null);
+    }
+  };
 
   // 1. Fetch recent workflows
   const fetchWorkflows = useCallback(async () => {
@@ -284,8 +311,14 @@ export const LivePipelineObservabilityView: React.FC<LivePipelineObservabilityVi
           {activeWorkflow && (
             <div className="flex items-center gap-2.5">
               <span className="text-sm text-slate-400 font-medium">Active Stage:</span>
-              <span className="text-sm sm:text-base font-bold font-mono px-3.5 py-1 rounded-lg bg-sky-950 border border-sky-600/70 text-sky-200">
-                {activeWorkflow.current_stage}
+              <span className={`text-sm sm:text-base font-bold font-mono px-3.5 py-1 rounded-lg ${
+                activeWorkflow.current_stage === 'REJECTED'
+                  ? 'bg-rose-950 border border-rose-600/70 text-rose-200'
+                  : activeWorkflow.current_stage === 'COMPLETED'
+                  ? 'bg-emerald-950 border border-emerald-600/70 text-emerald-200'
+                  : 'bg-sky-950 border border-sky-600/70 text-sky-200'
+              }`}>
+                {activeWorkflow.current_stage === 'REJECTED' ? 'REJECTED (CANCELED)' : activeWorkflow.current_stage}
               </span>
             </div>
           )}
@@ -479,6 +512,7 @@ export const LivePipelineObservabilityView: React.FC<LivePipelineObservabilityVi
                   const isCalendar = act.action_type === 'create_calendar_event';
                   const isReadCalendar = act.action_type === 'read_calendar';
                   const isStaged = act.status === 'staged';
+                  const isRejected = act.status === 'rejected';
 
                   const actionContent = (
                     <>
@@ -493,11 +527,13 @@ export const LivePipelineObservabilityView: React.FC<LivePipelineObservabilityVi
                         <span className={`text-xs font-semibold px-2.5 py-1 rounded-full shrink-0 ${
                           execRes?.verified || act.status === 'completed'
                             ? 'bg-emerald-950/80 text-emerald-400 border border-emerald-800'
-                            : act.status === 'staged'
+                            : isRejected
+                            ? 'bg-rose-950/80 text-rose-300 border border-rose-800'
+                            : isStaged
                             ? 'bg-amber-950/80 text-amber-300 border border-amber-800 animate-pulse'
                             : 'bg-slate-800 text-slate-400'
                         }`}>
-                          {execRes?.verified ? 'Verified Live' : act.status.toUpperCase()}
+                          {execRes?.verified ? 'Verified Live' : isRejected ? 'REJECTED' : act.status.toUpperCase()}
                         </span>
                       </div>
 
@@ -505,9 +541,14 @@ export const LivePipelineObservabilityView: React.FC<LivePipelineObservabilityVi
 
                       <div className="pt-2 border-t border-slate-700/60 flex items-center justify-between text-xs font-mono text-slate-400">
                         <span>Action: {act.action_id}</span>
-                        {isDraft && act.status === 'staged' && (
+                        {isDraft && isStaged && (
                           <span className="text-amber-400 font-sans font-semibold">
                             📱 Telegram Approval Sent
+                          </span>
+                        )}
+                        {isRejected && (
+                          <span className="text-rose-400 font-sans font-semibold">
+                            ✕ Rejected & Canceled
                           </span>
                         )}
                         {execRes?.memory_id && (
@@ -516,6 +557,27 @@ export const LivePipelineObservabilityView: React.FC<LivePipelineObservabilityVi
                           </span>
                         )}
                       </div>
+
+                      {isStaged && (
+                        <div className="pt-2.5 flex items-center gap-2 border-t border-slate-700/60">
+                          <button
+                            onClick={() => handleActionConfirm(act.action_id)}
+                            disabled={actionProcessing === act.action_id}
+                            className="flex-1 py-1.5 px-3 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold flex items-center justify-center gap-1.5 transition-all shadow-md disabled:opacity-50"
+                          >
+                            <Check className="w-3.5 h-3.5" />
+                            <span>{actionProcessing === act.action_id ? 'Executing...' : 'Approve & Execute'}</span>
+                          </button>
+                          <button
+                            onClick={() => handleActionReject(act.action_id)}
+                            disabled={actionProcessing === act.action_id}
+                            className="py-1.5 px-3 rounded-lg bg-slate-800 hover:bg-rose-950/60 hover:border-rose-700 text-slate-300 hover:text-rose-300 text-xs font-bold flex items-center gap-1 transition-all border border-slate-700/60 disabled:opacity-50"
+                          >
+                            <X className="w-3.5 h-3.5" />
+                            <span>Reject</span>
+                          </button>
+                        </div>
+                      )}
                     </>
                   );
 
@@ -897,7 +959,13 @@ export const LivePipelineObservabilityView: React.FC<LivePipelineObservabilityVi
                 >
                   <div className="flex items-center gap-3 min-w-0">
                     <div className={`w-3 h-3 rounded-full shrink-0 ${
-                      wf.status === 'COMPLETED' ? 'bg-emerald-400' : wf.status === 'AWAITING_APPROVAL' ? 'bg-amber-400 animate-pulse' : 'bg-sky-400'
+                      wf.status === 'COMPLETED'
+                        ? 'bg-emerald-400'
+                        : wf.status === 'REJECTED'
+                        ? 'bg-rose-400'
+                        : wf.status === 'AWAITING_APPROVAL'
+                        ? 'bg-amber-400 animate-pulse'
+                        : 'bg-sky-400'
                     }`} />
                     <div className="min-w-0">
                       <div className="flex items-center gap-2.5">
@@ -912,6 +980,8 @@ export const LivePipelineObservabilityView: React.FC<LivePipelineObservabilityVi
                     <span className={`text-xs font-bold px-3 py-1 rounded-full ${
                       wf.status === 'COMPLETED'
                         ? 'bg-emerald-950/80 text-emerald-300 border border-emerald-800/60'
+                        : wf.status === 'REJECTED'
+                        ? 'bg-rose-950/80 text-rose-300 border border-rose-800/60'
                         : wf.status === 'AWAITING_APPROVAL'
                         ? 'bg-amber-950/80 text-amber-300 border border-amber-800/60'
                         : 'bg-sky-950/80 text-sky-300 border border-sky-800/60'

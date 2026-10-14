@@ -107,7 +107,42 @@ class TelegramService:
             return self._user_chat_map[uid]
         if self._discovered_chat_ids:
             return self._discovered_chat_ids[-1]
-        return None
+    async def set_webhook(self, webhook_url: str) -> Dict[str, Any]:
+        """Explicitly sets Telegram Bot webhook URL."""
+        if not self.bot_token:
+            return {"ok": False, "error": "No bot token"}
+        url = f"{self.base_url}/setWebhook"
+        payload = {"url": webhook_url, "drop_pending_updates": False}
+        try:
+            async with httpx.AsyncClient(timeout=10.0) as client:
+                res = await client.post(url, json=payload)
+                data = res.json()
+                logger.info("Telegram setWebhook to %s: %s", webhook_url, data)
+                return data
+        except Exception as exc:
+            logger.error("Failed to set Telegram webhook to %s: %s", webhook_url, exc)
+            return {"ok": False, "error": str(exc)}
+
+    async def ensure_webhook(self, base_url: str) -> bool:
+        """Verifies and automatically configures Telegram webhook to match the current deployment URL."""
+        if not self.bot_token or not base_url:
+            return False
+        clean_base = base_url.rstrip("/")
+        expected_url = f"{clean_base}/api/telegram/webhook"
+        try:
+            async with httpx.AsyncClient(timeout=8.0) as client:
+                res = await client.get(f"{self.base_url}/getWebhookInfo")
+                data = res.json()
+                current_url = data.get("result", {}).get("url", "")
+                if current_url != expected_url:
+                    logger.info("Updating Telegram webhook: %s -> %s", current_url, expected_url)
+                    set_res = await self.set_webhook(expected_url)
+                    return bool(set_res.get("ok"))
+                logger.info("Telegram webhook already correctly pointed to %s", expected_url)
+                return True
+        except Exception as exc:
+            logger.warning("Could not check/ensure Telegram webhook: %s", exc)
+            return False
 
     async def send_message(
         self,

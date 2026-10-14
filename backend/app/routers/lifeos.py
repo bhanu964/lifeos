@@ -192,6 +192,7 @@ async def confirm_action(
     action_id: str,
     uid: str = Query(..., min_length=1, description="Authenticated user identifier"),
     action_service: ActionService = Depends(get_action_service),
+    workflow_service: WorkflowService = Depends(get_workflow_service),
 ):
     """
     Human-in-the-Loop Confirmation:
@@ -199,6 +200,12 @@ async def confirm_action(
     validates the result, and stores the completion record into Qdrant memory.
     """
     try:
+        wf = workflow_service.get_workflow_by_action_id(action_id)
+        if wf:
+            await workflow_service.handle_telegram_approval(action_id, wf.workflow_id)
+            res = next((r for r in wf.action_results if r.action_id == action_id), None)
+            if res:
+                return res
         return await action_service.confirm_and_execute(action_id=action_id, uid=uid.strip())
     except ValueError as ve:
         raise HTTPException(status_code=400, detail=str(ve))
@@ -212,9 +219,13 @@ async def reject_action(
     action_id: str,
     uid: str = Query(..., min_length=1, description="Authenticated user identifier"),
     action_service: ActionService = Depends(get_action_service),
+    workflow_service: WorkflowService = Depends(get_workflow_service),
 ):
     """Reject and cancel a staged action proposal."""
     try:
+        wf = workflow_service.get_workflow_by_action_id(action_id)
+        if wf:
+            await workflow_service.handle_telegram_rejection(action_id, wf.workflow_id)
         return action_service.reject_action(action_id=action_id, uid=uid.strip())
     except ValueError as ve:
         raise HTTPException(status_code=400, detail=str(ve))
