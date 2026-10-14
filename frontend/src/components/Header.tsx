@@ -61,11 +61,11 @@ export const Header: React.FC<HeaderProps> = ({
   };
 
   const tabs = [
-    { id: 'pipeline', label: '⚡ Live Pipeline' },
+    { id: 'pipeline', label: 'Live Pipeline' },
     { id: 'actions', label: 'Action Approvals' },
     { id: 'memories', label: 'Voice Memories' },
     { id: 'notifications', label: 'Telegram Logs' },
-    { id: 'settings', label: '⚙️ Integrations & Setup' },
+    { id: 'settings', label: 'Integrations & Setup' },
     { id: 'diagnostics', label: 'System Health' },
   ];
 

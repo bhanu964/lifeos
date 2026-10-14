@@ -554,8 +554,11 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({
               </div>
             </div>
 
-            <div className="p-5 rounded-2xl bg-emerald-950/40 border border-emerald-500/40 text-sm sm:text-base text-emerald-200 leading-relaxed">
-              🎉 <strong>You're ready!</strong> Your multi-tenant LifeOS workspace is fully configured and ready for live voice interactions.
+            <div className="p-5 rounded-2xl bg-emerald-950/40 border border-emerald-500/40 text-sm sm:text-base text-emerald-200 leading-relaxed flex items-center gap-3">
+              <CheckCircle2Icon className="w-6 h-6 text-emerald-400 shrink-0" />
+              <div>
+                <strong className="text-white">Workspace Configured:</strong> Your multi-tenant LifeOS workspace is fully configured and ready for live voice interactions.
+              </div>
             </div>
           </div>
         )}

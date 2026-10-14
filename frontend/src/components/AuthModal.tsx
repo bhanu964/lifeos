@@ -10,6 +10,7 @@ import {
   AlertCircleIcon,
   CheckCircle2Icon,
   ArrowRightIcon,
+  ZapIcon,
 } from 'lucide-react';
 
 interface AuthModalProps {
@@ -210,9 +211,10 @@ export const AuthModal: React.FC<AuthModalProps> = ({
             <button
               type="button"
               onClick={handleDemoFill}
-              className="text-[11px] text-cyan-400 hover:text-cyan-300 underline font-mono flex items-center gap-1"
+              className="text-xs text-cyan-400 hover:text-cyan-300 font-mono flex items-center gap-1.5"
             >
-              <span>⚡ Quick-fill demo account</span>
+              <ZapIcon className="w-3.5 h-3.5" />
+              <span>Quick-fill demo account</span>
             </button>
             <button
               type="button"

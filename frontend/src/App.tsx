@@ -15,7 +15,19 @@ import { AddMemoryModal } from './components/AddMemoryModal';
 import Aurora from './components/reactbits/Aurora';
 import { HealthResponse, MemoryItem, ExecutionEvent } from './types';
 import { api } from './services/api';
-import { Menu, Wand2, RefreshCw } from 'lucide-react';
+import {
+  Menu,
+  Wand2,
+  RefreshCw,
+  Zap,
+  MessageSquare,
+  ShieldCheck,
+  Database,
+  Send,
+  Settings,
+  Activity,
+  AlertTriangle,
+} from 'lucide-react';
 
 const DEFAULT_PHONE_UID = 'VFLpmF0dcuOCT4mzOEDtIKJG0H93';
 
@@ -165,17 +177,50 @@ function LifeOSDashboard() {
                 >
                   <Menu className="w-5 h-5" />
                 </button>
-                <div>
-                  <h1 className="text-lg sm:text-xl font-bold text-white tracking-tight flex items-center gap-2">
-                    {currentTab === 'pipeline' && '⚡ Live Pipeline'}
-                    {currentTab === 'conversations' && '💬 Conversation History'}
-                    {currentTab === 'actions' && '🛡️ Action Approval Center'}
-                    {currentTab === 'memories' && '🧠 Voice Memories'}
-                    {currentTab === 'notifications' && '📨 Telegram Logs & Delivery'}
-                    {currentTab === 'settings' && '⚙️ Integrations & Settings'}
-                    {currentTab === 'diagnostics' && '🩺 System Health & Diagnostics'}
+                  <h1 className="text-lg sm:text-xl font-bold text-white tracking-tight flex items-center gap-2.5">
+                    {currentTab === 'pipeline' && (
+                      <>
+                        <Zap className="w-5 h-5 text-cyan-400 shrink-0" />
+                        <span>Live Execution Pipeline</span>
+                      </>
+                    )}
+                    {currentTab === 'conversations' && (
+                      <>
+                        <MessageSquare className="w-5 h-5 text-cyan-400 shrink-0" />
+                        <span>Conversation History</span>
+                      </>
+                    )}
+                    {currentTab === 'actions' && (
+                      <>
+                        <ShieldCheck className="w-5 h-5 text-cyan-400 shrink-0" />
+                        <span>Action Approval Center</span>
+                      </>
+                    )}
+                    {currentTab === 'memories' && (
+                      <>
+                        <Database className="w-5 h-5 text-cyan-400 shrink-0" />
+                        <span>Voice Memories</span>
+                      </>
+                    )}
+                    {currentTab === 'notifications' && (
+                      <>
+                        <Send className="w-5 h-5 text-cyan-400 shrink-0" />
+                        <span>Telegram Logs & Delivery</span>
+                      </>
+                    )}
+                    {currentTab === 'settings' && (
+                      <>
+                        <Settings className="w-5 h-5 text-cyan-400 shrink-0" />
+                        <span>Integrations & Settings</span>
+                      </>
+                    )}
+                    {currentTab === 'diagnostics' && (
+                      <>
+                        <Activity className="w-5 h-5 text-cyan-400 shrink-0" />
+                        <span>System Health & Diagnostics</span>
+                      </>
+                    )}
                   </h1>
-                </div>
               </div>
 
               <div className="flex items-center gap-3">

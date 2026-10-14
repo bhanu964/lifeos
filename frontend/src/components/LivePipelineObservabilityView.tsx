@@ -381,9 +381,10 @@ export const LivePipelineObservabilityView: React.FC<LivePipelineObservabilityVi
               </span>
               <button
                 onClick={() => setSelectedNodeId(null)}
-                className="text-slate-400 hover:text-white p-1 text-base font-bold"
+                className="text-slate-400 hover:text-white p-1 rounded-lg hover:bg-slate-800 transition-colors"
+                title="Close details"
               >
-                ✕
+                <X className="w-5 h-5" />
               </button>
             </div>
             <div className="space-y-2 font-mono text-xs sm:text-sm">
@@ -542,18 +543,21 @@ export const LivePipelineObservabilityView: React.FC<LivePipelineObservabilityVi
                       <div className="pt-2 border-t border-slate-700/60 flex items-center justify-between text-xs font-mono text-slate-400">
                         <span>Action: {act.action_id}</span>
                         {isDraft && isStaged && (
-                          <span className="text-amber-400 font-sans font-semibold">
-                            📱 Telegram Approval Sent
+                          <span className="text-amber-400 font-sans font-semibold flex items-center gap-1.5">
+                            <Send className="w-3.5 h-3.5 text-blue-400" />
+                            <span>Telegram Approval Sent</span>
                           </span>
                         )}
                         {isRejected && (
-                          <span className="text-rose-400 font-sans font-semibold">
-                            ✕ Rejected & Canceled
+                          <span className="text-rose-400 font-sans font-semibold flex items-center gap-1.5">
+                            <X className="w-3.5 h-3.5 text-rose-400" />
+                            <span>Rejected & Canceled</span>
                           </span>
                         )}
                         {execRes?.memory_id && (
-                          <span className="text-emerald-400 font-sans font-semibold">
-                            ✓ Memory Stored ({execRes.memory_id.slice(0, 8)}...)
+                          <span className="text-emerald-400 font-sans font-semibold flex items-center gap-1.5">
+                            <Check className="w-3.5 h-3.5 text-emerald-400" />
+                            <span>Memory Stored ({execRes.memory_id.slice(0, 8)}...)</span>
                           </span>
                         )}
                       </div>
