@@ -263,17 +263,19 @@ class LyzrService:
         time_max: Optional[str] = None,
         max_results: int = 15,
         calendar_id: str = "primary",
+        credential_id: Optional[str] = None,
     ) -> List[Dict[str, Any]]:
         """
         Retrieves real calendar events from Google Calendar via Composio.
         """
+        effective_cred = credential_id or settings.google_calendar_credential_id
         tool_config = [
             {
                 "tool_name": "googlecalendar",
                 "tool_source": "composio",
                 "action_names": ["GOOGLECALENDAR_EVENTS_LIST"],
                 "provider_uuid": settings.google_calendar_provider_uuid,
-                "credential_id": settings.google_calendar_credential_id,
+                "credential_id": effective_cred,
                 "persist_auth": True,
             }
         ]
@@ -309,17 +311,19 @@ class LyzrService:
         timezone: str = "UTC",
         calendar_id: str = "primary",
         event_duration_minutes: int = 60,
+        credential_id: Optional[str] = None,
     ) -> Dict[str, Any]:
         """
         Creates a real calendar event in Google Calendar via Composio.
         """
+        effective_cred = credential_id or settings.google_calendar_credential_id
         tool_config = [
             {
                 "tool_name": "googlecalendar",
                 "tool_source": "composio",
                 "action_names": ["GOOGLECALENDAR_CREATE_EVENT"],
                 "provider_uuid": settings.google_calendar_provider_uuid,
-                "credential_id": settings.google_calendar_credential_id,
+                "credential_id": effective_cred,
                 "persist_auth": True,
             }
         ]
@@ -344,17 +348,19 @@ class LyzrService:
         self,
         tasklist_id: str = "@default",
         max_results: int = 20,
+        credential_id: Optional[str] = None,
     ) -> List[Dict[str, Any]]:
         """
         Retrieves real pending tasks from Google Tasks via Composio.
         """
+        effective_cred = credential_id or settings.google_tasks_credential_id
         tool_config = [
             {
                 "tool_name": "googletasks",
                 "tool_source": "composio",
                 "action_names": ["GOOGLETASKS_LIST_TASKS"],
                 "provider_uuid": settings.google_tasks_provider_uuid,
-                "credential_id": settings.google_tasks_credential_id,
+                "credential_id": effective_cred,
                 "persist_auth": True,
             }
         ]
@@ -381,17 +387,19 @@ class LyzrService:
         tasklist_id: str = "@default",
         notes: Optional[str] = None,
         due: Optional[str] = None,
+        credential_id: Optional[str] = None,
     ) -> Dict[str, Any]:
         """
         Creates a real task in Google Tasks via Composio.
         """
+        effective_cred = credential_id or settings.google_tasks_credential_id
         tool_config = [
             {
                 "tool_name": "googletasks",
                 "tool_source": "composio",
                 "action_names": ["GOOGLETASKS_INSERT_TASK"],
                 "provider_uuid": settings.google_tasks_provider_uuid,
-                "credential_id": settings.google_tasks_credential_id,
+                "credential_id": effective_cred,
                 "persist_auth": True,
             }
         ]
@@ -416,17 +424,19 @@ class LyzrService:
         self,
         task_id: str,
         tasklist_id: str = "@default",
+        credential_id: Optional[str] = None,
     ) -> Dict[str, Any]:
         """
         Retrieves a task by ID to verify its creation in Google Tasks.
         """
+        effective_cred = credential_id or settings.google_tasks_credential_id
         tool_config = [
             {
                 "tool_name": "googletasks",
                 "tool_source": "composio",
                 "action_names": ["GOOGLETASKS_GET_TASK"],
                 "provider_uuid": settings.google_tasks_provider_uuid,
-                "credential_id": settings.google_tasks_credential_id,
+                "credential_id": effective_cred,
                 "persist_auth": True,
             }
         ]
@@ -448,18 +458,20 @@ class LyzrService:
         body: str,
         is_html: bool = False,
         user_id: str = "me",
+        credential_id: Optional[str] = None,
     ) -> Dict[str, Any]:
         """
         Creates a real email draft in Gmail via Composio.
         Strict safety: Only stages/creates drafts, never sends messages.
         """
+        effective_cred = credential_id or settings.gmail_credential_id
         tool_config = [
             {
                 "tool_name": "gmail",
                 "tool_source": "composio",
                 "action_names": ["GMAIL_CREATE_EMAIL_DRAFT"],
                 "provider_uuid": settings.gmail_provider_uuid,
-                "credential_id": settings.gmail_credential_id,
+                "credential_id": effective_cred,
                 "persist_auth": True,
             }
         ]
@@ -481,17 +493,19 @@ class LyzrService:
     async def list_gmail_drafts(
         self,
         user_id: str = "me",
+        credential_id: Optional[str] = None,
     ) -> Dict[str, Any]:
         """
         Retrieves real drafts from Gmail to verify draft creation.
         """
+        effective_cred = credential_id or settings.gmail_credential_id
         tool_config = [
             {
                 "tool_name": "gmail",
                 "tool_source": "composio",
                 "action_names": ["GMAIL_LIST_DRAFTS"],
                 "provider_uuid": settings.gmail_provider_uuid,
-                "credential_id": settings.gmail_credential_id,
+                "credential_id": effective_cred,
                 "persist_auth": True,
             }
         ]

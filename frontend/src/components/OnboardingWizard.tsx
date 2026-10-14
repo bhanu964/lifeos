@@ -42,7 +42,7 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({
   const [qdrantUrl, setQdrantUrl] = useState('');
   const [qdrantApiKey, setQdrantApiKey] = useState('');
   const [qdrantCollection, setQdrantCollection] = useState('agentmemory_memories');
-  const [useDefaultQdrant, setUseDefaultQdrant] = useState(true);
+  const [useDefaultQdrant, setUseDefaultQdrant] = useState(false);
 
   const [lyzrApiKey, setLyzrApiKey] = useState('');
   const [lyzrManagerAgentId, setLyzrManagerAgentId] = useState('');
@@ -52,6 +52,11 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({
   const [botUsername, setBotUsername] = useState('Ididhswkje_bot');
   const [telegramChatId, setTelegramChatId] = useState('');
   const [useDefaultTelegram, setUseDefaultTelegram] = useState(true);
+
+  const [googleCredentialId, setGoogleCredentialId] = useState('');
+  const [googleCalendarConnected, setGoogleCalendarConnected] = useState(false);
+  const [googleTasksConnected, setGoogleTasksConnected] = useState(false);
+  const [gmailConnected, setGmailConnected] = useState(false);
 
   // Sync initialStep when opened
   useEffect(() => {
@@ -68,8 +73,12 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({
         const res = await api.listIntegrations();
         const items = res.integrations || {};
 
-        if (items.qdrant && items.qdrant.masked_fields?.source === 'custom') {
-          setUseDefaultQdrant(false);
+        if (items.qdrant) {
+          if (items.qdrant.masked_fields?.source === 'managed_cluster') {
+            setUseDefaultQdrant(true);
+          } else if (items.qdrant.status === 'connected') {
+            setUseDefaultQdrant(false);
+          }
         }
         if (items.lyzr && items.lyzr.masked_fields?.source === 'custom') {
           setUseDefaultLyzr(false);
@@ -79,6 +88,15 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({
           if (items.telegram.masked_fields?.telegram_bot_username) {
             setBotUsername(items.telegram.masked_fields.telegram_bot_username);
           }
+        }
+        if (items.google_calendar && items.google_calendar.status === 'connected') {
+          setGoogleCalendarConnected(true);
+        }
+        if (items.google_tasks && items.google_tasks.status === 'connected') {
+          setGoogleTasksConnected(true);
+        }
+        if (items.gmail && items.gmail.status === 'connected') {
+          setGmailConnected(true);
         }
       } catch (err) {
         console.debug('Could not prefill integrations:', err);
@@ -103,23 +121,38 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({
     setTesting(true);
     setTestResult(null);
     try {
-      if (type === 'qdrant' && !useDefaultQdrant && qdrantUrl && qdrantApiKey) {
-        await api.saveIntegration('qdrant', {
-          qdrant_url: qdrantUrl,
-          qdrant_api_key: qdrantApiKey,
-          qdrant_collection_name: qdrantCollection || 'agentmemory_memories',
-        });
+      if (type === 'qdrant') {
+        if (useDefaultQdrant) {
+          await api.saveIntegration('qdrant', { use_managed: true });
+        } else if (qdrantUrl && qdrantApiKey) {
+          await api.saveIntegration('qdrant', {
+            qdrant_url: qdrantUrl,
+            qdrant_api_key: qdrantApiKey,
+            qdrant_collection_name: qdrantCollection || 'agentmemory_memories',
+          });
+        }
       } else if (type === 'lyzr' && !useDefaultLyzr && lyzrApiKey) {
         await api.saveIntegration('lyzr', {
           lyzr_api_key: lyzrApiKey,
           lyzr_manager_agent_id: lyzrManagerAgentId || undefined,
         });
-      } else if (type === 'telegram' && botToken) {
-        await api.saveIntegration('telegram', {
-          telegram_bot_token: botToken,
-          telegram_bot_username: botUsername,
-          telegram_chat_id: telegramChatId || undefined,
-        });
+      } else if (type === 'telegram') {
+        if (!useDefaultTelegram && botToken) {
+          await api.saveIntegration('telegram', {
+            telegram_bot_token: botToken,
+            telegram_bot_username: botUsername,
+            telegram_chat_id: telegramChatId || undefined,
+          });
+        }
+      } else if (type === 'google_tasks' || type === 'google_calendar' || type === 'gmail') {
+        if (googleCredentialId) {
+          await api.saveIntegration('google_tasks', { credential_id: googleCredentialId });
+          await api.saveIntegration('google_calendar', { credential_id: googleCredentialId });
+          await api.saveIntegration('gmail', { credential_id: googleCredentialId });
+          setGoogleTasksConnected(true);
+          setGoogleCalendarConnected(true);
+          setGmailConnected(true);
+        }
       }
 
       const res = await api.testIntegration(type);
@@ -140,8 +173,10 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({
   const handleSaveStep = async () => {
     setTestResult(null);
     try {
-      if (currentStep === 1 && !useDefaultQdrant) {
-        if (qdrantUrl && qdrantApiKey) {
+      if (currentStep === 1) {
+        if (useDefaultQdrant) {
+          await api.saveIntegration('qdrant', { use_managed: true });
+        } else if (qdrantUrl && qdrantApiKey) {
           await api.saveIntegration('qdrant', {
             qdrant_url: qdrantUrl,
             qdrant_api_key: qdrantApiKey,
@@ -162,6 +197,12 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({
             telegram_bot_username: botUsername,
             telegram_chat_id: telegramChatId || undefined,
           });
+        }
+      } else if (currentStep === 5) {
+        if (googleCredentialId) {
+          await api.saveIntegration('google_tasks', { credential_id: googleCredentialId });
+          await api.saveIntegration('google_calendar', { credential_id: googleCredentialId });
+          await api.saveIntegration('gmail', { credential_id: googleCredentialId });
         }
       }
     } catch (err) {
@@ -240,13 +281,6 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({
               LifeOS uses Qdrant Cloud to index spoken conversations into 384-dimensional FastEmbed vector memories with sub-10ms semantic retrieval. Every memory is cryptographically isolated to your tenant account (<span className="text-cyan-400 font-mono font-semibold">{user.id}</span>).
             </p>
 
-            <div className="p-5 rounded-2xl bg-cyan-950/30 border border-cyan-500/30 flex items-start gap-3.5">
-              <ShieldCheckIcon className="w-6 h-6 text-cyan-400 shrink-0 mt-0.5" />
-              <div className="text-sm text-slate-200 leading-relaxed">
-                <strong className="text-white">Managed Cluster Active by Default:</strong> You can use the high-performance managed Qdrant Cloud cluster with instant zero-configuration setup, or connect your own dedicated Qdrant Cloud cluster below.
-              </div>
-            </div>
-
             <div className="flex items-center gap-3 pt-1">
               <input
                 type="checkbox"
@@ -260,8 +294,18 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({
               </label>
             </div>
 
-            {!useDefaultQdrant && (
+            {useDefaultQdrant ? (
+              <div className="p-5 rounded-2xl bg-cyan-950/40 border border-cyan-500/40 flex items-start gap-3.5">
+                <ShieldCheckIcon className="w-6 h-6 text-cyan-400 shrink-0 mt-0.5" />
+                <div className="text-sm sm:text-base text-slate-200 leading-relaxed">
+                  <strong className="text-white">Managed Cluster Active:</strong> Your memories are stored in the managed high-performance cluster with strict per-tenant cryptographic isolation (<code className="text-cyan-300 font-mono">{user.id}</code>). Other users cannot access or view your memories.
+                </div>
+              </div>
+            ) : (
               <div className="space-y-4 p-5 rounded-2xl bg-slate-900/70 border border-slate-800">
+                <div className="text-sm text-slate-300 font-medium">
+                  Connect your dedicated Qdrant Cloud cluster. LifeOS will store vector embeddings directly in your private database.
+                </div>
                 <div>
                   <label className="block text-sm font-semibold text-slate-200 mb-1.5">
                     Qdrant Cluster Endpoint URL
@@ -533,31 +577,65 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({
         {currentStep === 5 && (
           <div className="space-y-6">
             <p className="text-base text-slate-300 leading-relaxed">
-              Google Calendar, Google Tasks, and Gmail operate seamlessly through Composio on Lyzr. LifeOS reads events, computes free time, creates verified tasks, and prepares staged Gmail drafts.
+              Google Calendar, Google Tasks, and Gmail operate seamlessly through Composio on Lyzr. To protect privacy and prevent cross-user data leakage, <strong className="text-white">each user must connect their own Google account</strong>. LifeOS never uses or falls back to shared credentials.
             </p>
 
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-              <div className="p-4 rounded-2xl bg-slate-900 border border-slate-800 flex flex-col items-center text-center">
-                <CalendarIcon className="w-8 h-8 text-cyan-400 mb-2.5" />
+              <div className={`p-4 rounded-2xl bg-slate-900 border flex flex-col items-center text-center ${googleCalendarConnected ? 'border-emerald-500/50' : 'border-slate-800'}`}>
+                <CalendarIcon className={`w-8 h-8 mb-2.5 ${googleCalendarConnected ? 'text-emerald-400' : 'text-slate-500'}`} />
                 <span className="text-sm font-bold text-white">Google Calendar</span>
-                <span className="text-xs text-emerald-400 font-mono mt-1 font-semibold">● Connected</span>
+                <span className={`text-xs font-mono mt-1 font-semibold ${googleCalendarConnected ? 'text-emerald-400' : 'text-amber-400'}`}>
+                  {googleCalendarConnected ? 'Connected' : 'Not Connected'}
+                </span>
               </div>
-              <div className="p-4 rounded-2xl bg-slate-900 border border-slate-800 flex flex-col items-center text-center">
-                <CheckCircle2Icon className="w-8 h-8 text-blue-400 mb-2.5" />
+              <div className={`p-4 rounded-2xl bg-slate-900 border flex flex-col items-center text-center ${googleTasksConnected ? 'border-emerald-500/50' : 'border-slate-800'}`}>
+                <CheckCircle2Icon className={`w-8 h-8 mb-2.5 ${googleTasksConnected ? 'text-blue-400' : 'text-slate-500'}`} />
                 <span className="text-sm font-bold text-white">Google Tasks</span>
-                <span className="text-xs text-emerald-400 font-mono mt-1 font-semibold">● Connected</span>
+                <span className={`text-xs font-mono mt-1 font-semibold ${googleTasksConnected ? 'text-emerald-400' : 'text-amber-400'}`}>
+                  {googleTasksConnected ? 'Connected' : 'Not Connected'}
+                </span>
               </div>
-              <div className="p-4 rounded-2xl bg-slate-900 border border-slate-800 flex flex-col items-center text-center">
-                <BotIcon className="w-8 h-8 text-purple-400 mb-2.5" />
+              <div className={`p-4 rounded-2xl bg-slate-900 border flex flex-col items-center text-center ${gmailConnected ? 'border-emerald-500/50' : 'border-slate-800'}`}>
+                <BotIcon className={`w-8 h-8 mb-2.5 ${gmailConnected ? 'text-purple-400' : 'text-slate-500'}`} />
                 <span className="text-sm font-bold text-white">Gmail Drafts</span>
-                <span className="text-xs text-emerald-400 font-mono mt-1 font-semibold">● Staged with Approval</span>
+                <span className={`text-xs font-mono mt-1 font-semibold ${gmailConnected ? 'text-emerald-400' : 'text-amber-400'}`}>
+                  {gmailConnected ? 'Connected' : 'Not Connected'}
+                </span>
               </div>
             </div>
 
-            <div className="p-5 rounded-2xl bg-emerald-950/40 border border-emerald-500/40 text-sm sm:text-base text-emerald-200 leading-relaxed flex items-center gap-3">
-              <CheckCircle2Icon className="w-6 h-6 text-emerald-400 shrink-0" />
+            <div className="space-y-4 p-5 rounded-2xl bg-slate-900/70 border border-slate-800">
               <div>
-                <strong className="text-white">Workspace Configured:</strong> Your multi-tenant LifeOS workspace is fully configured and ready for live voice interactions.
+                <label className="block text-sm font-semibold text-slate-200 mb-1.5">
+                  Your Google OAuth / Composio Credential ID
+                </label>
+                <input
+                  type="text"
+                  value={googleCredentialId}
+                  onChange={(e) => setGoogleCredentialId(e.target.value)}
+                  placeholder="e.g. ca_user_google_oauth_..."
+                  className="w-full px-4 py-3 bg-slate-950 border border-slate-700 rounded-xl text-sm sm:text-base text-white placeholder-slate-500 focus:outline-none focus:border-cyan-500 font-mono"
+                />
+                <p className="text-xs text-slate-400 mt-1">
+                  Connect your personal Google account. If left unconfigured, Google Calendar/Tasks/Gmail actions will be gracefully disabled.
+                </p>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => handleTestIntegration('google_tasks')}
+                disabled={testing || !googleCredentialId}
+                className="px-5 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 border border-slate-700 text-xs sm:text-sm text-cyan-300 font-mono font-medium flex items-center gap-2 transition-colors disabled:opacity-50"
+              >
+                <CheckCircle2Icon className="w-4 h-4" />
+                <span>{testing ? 'Testing...' : 'Save & Verify Google Account'}</span>
+              </button>
+            </div>
+
+            <div className="p-4 rounded-2xl bg-slate-900/80 border border-slate-800 text-xs sm:text-sm text-slate-300 flex items-start gap-3">
+              <ShieldCheckIcon className="w-5 h-5 text-cyan-400 shrink-0 mt-0.5" />
+              <div>
+                <strong className="text-white">Strict Isolation Enforced:</strong> Actions (such as creating events, reading emails, and writing drafts) only run against the authenticated user&apos;s own Google account and will never touch anyone else&apos;s data.
               </div>
             </div>
           </div>

@@ -99,10 +99,39 @@ class TelegramService:
         cls._save_state()
 
     def get_effective_chat_id(self, uid: Optional[str] = None) -> Optional[str]:
-        """Resolves target Telegram chat ID: user map > discovered list > configured fallback."""
+        """
+        Resolves target Telegram chat ID strictly for the specified user.
+        If uid is provided, NEVER falls back to another user's or system default chat_id.
+        """
         self._ensure_state_loaded()
-        if uid and uid in self._user_chat_map:
-            return self._user_chat_map[uid]
+        if uid:
+            # 1. In-memory / persistent user-to-chat map
+            if uid in self._user_chat_map:
+                return self._user_chat_map[uid]
+
+            # 2. Stored user credentials in database
+            try:
+                from sqlalchemy import select
+                from app.models.user import UserDB
+                from app.services.db import get_db_session
+                from app.services.user_credentials_service import UserCredentialsService
+
+                creds = UserCredentialsService.get_decrypted_credentials(uid, "telegram")
+                custom_cid = creds.get("telegram_chat_id")
+                if custom_cid:
+                    return str(custom_cid).strip()
+
+                with get_db_session() as session:
+                    user_record = session.execute(select(UserDB).where(UserDB.id == uid)).scalar_one_or_none()
+                    if user_record and user_record.telegram_chat_id:
+                        return str(user_record.telegram_chat_id).strip()
+            except Exception as err:
+                logger.debug("Failed querying user chat ID for uid %s: %s", uid, err)
+
+            # STRICT ISOLATION: When a user ID is given, never leak system or other user chat IDs
+            return None
+
+        # System-level fallback only when no specific user was requested
         if self._discovered_chat_ids:
             return self._discovered_chat_ids[-1]
         if settings.telegram_chat_id:

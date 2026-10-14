@@ -229,89 +229,81 @@ export const Sidebar: React.FC<SidebarProps> = ({
                   }`}
                 />
                 <span className="text-xs font-mono font-bold text-slate-300 uppercase tracking-wider">
-                  Live Integrations
+                  System Status
                 </span>
               </div>
               <button
                 type="button"
                 onClick={onRefresh}
                 disabled={loadingHealth}
-                title="Refresh Integration Health"
+                title="Refresh Status"
                 className="p-1 rounded-lg text-slate-400 hover:text-cyan-300 transition-colors disabled:opacity-50"
               >
                 <RefreshCw className={`w-3.5 h-3.5 ${loadingHealth ? 'animate-spin text-cyan-400' : ''}`} />
               </button>
             </div>
 
+            {/* LifeOS Managed Core */}
             <div className="space-y-2 text-xs">
-              {/* FastAPI */}
+              <div className="text-[10px] font-mono text-cyan-400 uppercase tracking-wider font-semibold pt-1">
+                LifeOS Core
+              </div>
               <div className="flex items-center justify-between">
                 <span className="text-slate-400">FastAPI Backend</span>
                 <span className={`font-mono font-semibold ${isHealthy ? 'text-emerald-400' : 'text-rose-400'}`}>
                   {isHealthy ? 'Online' : 'Offline'}
                 </span>
               </div>
-
-              {/* Qdrant */}
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-1.5 text-slate-400">
                   <Database className="w-3.5 h-3.5 text-cyan-400" />
                   <span>Qdrant Cloud</span>
                 </div>
                 <span className="text-emerald-400 font-mono font-semibold text-[11px]">
-                  {health?.integrations.qdrant_configured ? 'Connected' : 'Active'}
+                  Isolated
                 </span>
               </div>
-
-              {/* Lyzr */}
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-1.5 text-slate-400">
                   <Cpu className="w-3.5 h-3.5 text-indigo-400" />
                   <span>Lyzr Triad</span>
                 </div>
                 <span className="text-emerald-400 font-mono font-semibold text-[11px]">
-                  {health?.integrations.lyzr_configured ? 'Active' : 'Triad'}
+                  Active
                 </span>
               </div>
 
-              {/* Calendar */}
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-1.5 text-slate-400">
-                  <Calendar className="w-3.5 h-3.5 text-amber-400" />
-                  <span>Google Calendar</span>
-                </div>
-                <span className="text-emerald-400 font-mono font-semibold text-[11px]">Connected</span>
+              {/* User-Owned Integrations */}
+              <div className="text-[10px] font-mono text-blue-400 uppercase tracking-wider font-semibold pt-2 border-t border-slate-800">
+                Your Accounts
               </div>
-
-              {/* Tasks */}
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-1.5 text-slate-400">
-                  <ListTodo className="w-3.5 h-3.5 text-blue-400" />
-                  <span>Google Tasks</span>
-                </div>
-                <span className="text-emerald-400 font-mono font-semibold text-[11px]">Connected</span>
-              </div>
-
-              {/* Gmail */}
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-1.5 text-slate-400">
-                  <Mail className="w-3.5 h-3.5 text-purple-400" />
-                  <span>Gmail</span>
-                </div>
-                <span className="text-emerald-400 font-mono font-semibold text-[11px]">Drafts HITL</span>
-              </div>
-
-              {/* Telegram */}
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-1.5 text-slate-400">
                   <Send className="w-3.5 h-3.5 text-blue-400" />
                   <span>Telegram</span>
                 </div>
-                <span className="text-cyan-300 font-mono font-semibold text-[11px]">@Ididhswkje_bot</span>
+                <span className={`font-mono font-semibold text-[11px] ${
+                  user?.telegram_chat_id ? 'text-emerald-400' : 'text-amber-400'
+                }`}>
+                  {user?.telegram_chat_id ? 'Paired' : 'Not Paired'}
+                </span>
+              </div>
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-1.5 text-slate-400">
+                  <Mail className="w-3.5 h-3.5 text-purple-400" />
+                  <span>Google Workspace</span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => handleNavClick('settings')}
+                  className="text-cyan-400 hover:text-cyan-300 font-mono text-[11px] underline underline-offset-2"
+                >
+                  Manage
+                </button>
               </div>
             </div>
 
-            <div className="pt-1 border-t border-slate-800 text-[10px] text-slate-500 font-mono text-center">
+            <div className="pt-2 border-t border-slate-800 text-[10px] text-slate-500 font-mono text-center">
               {health?.timestamp ? `Synced: ${new Date(health.timestamp).toLocaleTimeString()}` : 'Connected'}
             </div>
           </div>

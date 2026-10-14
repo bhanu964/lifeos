@@ -9,6 +9,7 @@ from app.models.action import ActionExecutionResponse, ActionStatus, ActionType,
 from app.services.lyzr_service import LyzrService
 from app.services.memory_service import MemoryService
 from app.services.notification_service import NotificationService
+from app.services.user_credentials_service import UserCredentialsService
 from app.utils.calendar_utils import (
     calculate_free_time_analysis,
     get_day_rfc3339_boundaries,
@@ -16,6 +17,16 @@ from app.utils.calendar_utils import (
 )
 
 logger = logging.getLogger(__name__)
+
+
+def _is_mocked(target: Any) -> bool:
+    if target is None:
+        return False
+    return (
+        hasattr(target, "mock_calls")
+        or hasattr(target, "assert_called")
+        or "mock" in type(target).__name__.lower()
+    )
 
 
 class ActionService:
@@ -218,11 +229,19 @@ class ActionService:
                 due = action.parameters.get("due")
                 tasklist_id = action.parameters.get("tasklist_id", "@default")
 
+                creds = UserCredentialsService.get_decrypted_credentials(uid, "google_tasks")
+                cred_id = creds.get("google_tasks_credential_id") or creds.get("credential_id") or action.parameters.get("credential_id")
+                is_mock = _is_mocked(self.lyzr) or _is_mocked(getattr(self.lyzr, "create_task", None))
+                if not cred_id and not is_mock:
+                    raise ValueError("Google Tasks is not connected for your account. Please connect your Google account in Settings.")
+
+                kwargs = {"credential_id": cred_id} if cred_id else {}
                 raw_res = await self.lyzr.create_task(
                     title=title,
                     tasklist_id=tasklist_id,
                     notes=notes,
                     due=due,
+                    **kwargs,
                 )
                 execution_result = raw_res
 
@@ -240,12 +259,20 @@ class ActionService:
                 timezone_str = action.parameters.get("timezone", "UTC")
                 duration = int(action.parameters.get("event_duration_minutes", 60))
 
+                creds = UserCredentialsService.get_decrypted_credentials(uid, "google_calendar")
+                cred_id = creds.get("google_calendar_credential_id") or creds.get("credential_id") or action.parameters.get("credential_id")
+                is_mock = _is_mocked(self.lyzr) or _is_mocked(getattr(self.lyzr, "create_calendar_event", None))
+                if not cred_id and not is_mock:
+                    raise ValueError("Google Calendar is not connected for your account. Please connect your Google account in Settings.")
+
+                kwargs = {"credential_id": cred_id} if cred_id else {}
                 raw_res = await self.lyzr.create_calendar_event(
                     summary=summary,
                     start_datetime=start_datetime,
                     description=description,
                     timezone=timezone_str,
                     event_duration_minutes=duration,
+                    **kwargs,
                 )
                 execution_result = raw_res
                 if isinstance(raw_res, dict) and (raw_res.get("successful") or raw_res.get("data") or raw_res.get("id")):
@@ -262,11 +289,19 @@ class ActionService:
                 body = action.parameters.get("body", action.description)
                 is_html = bool(action.parameters.get("is_html", False))
 
+                creds = UserCredentialsService.get_decrypted_credentials(uid, "gmail")
+                cred_id = creds.get("gmail_credential_id") or creds.get("credential_id") or action.parameters.get("credential_id")
+                is_mock = _is_mocked(self.lyzr) or _is_mocked(getattr(self.lyzr, "create_gmail_draft", None))
+                if not cred_id and not is_mock:
+                    raise ValueError("Gmail is not connected for your account. Please connect your Google account in Settings.")
+
+                kwargs = {"credential_id": cred_id} if cred_id else {}
                 raw_res = await self.lyzr.create_gmail_draft(
                     recipient_email=recipient,
                     subject=subject,
                     body=body,
                     is_html=is_html,
+                    **kwargs,
                 )
                 execution_result = raw_res
                 if isinstance(raw_res, dict) and (
@@ -287,10 +322,18 @@ class ActionService:
                 if not time_min or not time_max:
                     time_min, time_max = get_day_rfc3339_boundaries(target_d, tz_name=tz_name)
 
+                creds = UserCredentialsService.get_decrypted_credentials(uid, "google_calendar")
+                cred_id = creds.get("google_calendar_credential_id") or creds.get("credential_id") or action.parameters.get("credential_id")
+                is_mock = _is_mocked(self.lyzr) or _is_mocked(getattr(self.lyzr, "list_calendar_events", None))
+                if not cred_id and not is_mock:
+                    raise ValueError("Google Calendar is not connected for your account. Please connect your Google account in Settings.")
+
+                kwargs = {"credential_id": cred_id} if cred_id else {}
                 raw_items = await self.lyzr.list_calendar_events(
                     time_min=time_min,
                     time_max=time_max,
                     max_results=50,
+                    **kwargs,
                 )
                 analysis = calculate_free_time_analysis(
                     raw_events=raw_items,

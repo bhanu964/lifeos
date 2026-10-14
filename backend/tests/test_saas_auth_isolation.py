@@ -234,3 +234,85 @@ async def test_saas_custom_credentials_service_resolution():
         assert custom_tg.bot_token == "123456789:ABCdefGhIJKlmNoPQRsTUVwxyZ_custom"
         assert custom_tg.get_effective_chat_id(user_id) == custom_chat
 
+
+@pytest.mark.asyncio
+async def test_strict_user_credentials_and_zero_fallback():
+    """
+    Acceptance Criteria Matrix:
+    1. New users are never automatically connected to developer's accounts or private integrations.
+    2. Google Calendar, Google Tasks, Gmail, Telegram, and Qdrant default to 'unconfigured' for new users.
+    3. Telegram chat resolution strictly yields None for unlinked users (no developer chat_id leak).
+    4. Integration test endpoints cleanly fail when unconfigured rather than validating against server credentials.
+    5. Action execution without user-connected Google credentials raises clear error and prevents unauthorized execution.
+    """
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        # 1. Create a brand new tenant user
+        unique_email = f"isolated_user_{uuid.uuid4().hex[:8]}@example.com"
+        signup_res = await client.post(
+            "/api/auth/signup",
+            json={"email": unique_email, "password": "SecurePassword123!", "full_name": "Isolated Tenant"},
+        )
+        assert signup_res.status_code == 201
+        token = signup_res.json()["access_token"]
+        uid = signup_res.json()["user"]["id"]
+        headers = {"Authorization": f"Bearer {token}"}
+
+        # 2. Check all integration statuses: User-owned integrations MUST be 'unconfigured'
+        res_list = await client.get("/api/integrations", headers=headers)
+        assert res_list.status_code == 200
+        integrations = res_list.json()["integrations"]
+
+        assert integrations["google_calendar"]["status"] == "unconfigured"
+        assert integrations["google_tasks"]["status"] == "unconfigured"
+        assert integrations["gmail"]["status"] == "unconfigured"
+        assert integrations["telegram"]["status"] == "unconfigured"
+        assert integrations["qdrant"]["status"] == "unconfigured"
+        # Lyzr intelligence engine is managed by LifeOS
+        assert integrations["lyzr"]["status"] == "connected"
+        assert integrations["lyzr"]["masked_fields"].get("source") == "managed_triad"
+
+        # 3. Check Telegram chat ID resolution for new user: must strictly be None
+        from app.services.telegram_service import TelegramService
+        tg_svc = TelegramService()
+        assert tg_svc.get_effective_chat_id(uid) is None
+
+        # 4. Testing unconfigured integrations fails gracefully instead of falling back to server .env
+        test_tg = await client.post("/api/integrations/telegram/test", headers=headers)
+        assert test_tg.status_code == 400
+        assert "not connected" in test_tg.json()["detail"].lower()
+
+        test_tasks = await client.post("/api/integrations/google_tasks/test", headers=headers)
+        assert test_tasks.status_code == 400
+        assert "credentials connected" in test_tasks.json()["detail"].lower()
+
+        test_gmail = await client.post("/api/integrations/gmail/test", headers=headers)
+        assert test_gmail.status_code == 400
+        assert "credentials connected" in test_gmail.json()["detail"].lower()
+
+        # 5. User explicitly selects Managed Qdrant cluster
+        managed_qdrant_res = await client.post(
+            "/api/integrations/qdrant",
+            json={"credentials": {"use_managed": True}},
+            headers=headers,
+        )
+        assert managed_qdrant_res.status_code == 200
+        assert managed_qdrant_res.json()["status"] == "connected"
+        assert managed_qdrant_res.json()["masked_fields"].get("source") == "managed_cluster"
+        assert managed_qdrant_res.json()["masked_fields"].get("tenant_partition") == uid
+
+        # 6. User connects their own Google Tasks credential
+        custom_cred_id = f"user_tasks_cred_{uuid.uuid4().hex[:8]}"
+        save_tasks_res = await client.post(
+            "/api/integrations/google_tasks",
+            json={"credentials": {"credential_id": custom_cred_id}},
+            headers=headers,
+        )
+        assert save_tasks_res.status_code == 200
+        assert save_tasks_res.json()["status"] == "connected"
+
+        # Now Google Tasks test succeeds
+        test_tasks_after = await client.post("/api/integrations/google_tasks/test", headers=headers)
+        assert test_tasks_after.status_code == 200
+        assert test_tasks_after.json()["success"] is True
+

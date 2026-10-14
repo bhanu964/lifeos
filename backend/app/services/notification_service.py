@@ -26,9 +26,15 @@ class NotificationService:
         self,
         lyzr_service: Optional[LyzrService] = None,
         memory_service: Optional[MemoryService] = None,
+        telegram_service: Optional[Any] = None,
     ):
         self.lyzr = lyzr_service or LyzrService()
         self.memory = memory_service or MemoryService()
+        if telegram_service:
+            self.telegram = telegram_service
+        else:
+            from app.services.telegram_service import TelegramService
+            self.telegram = TelegramService()
 
     def list_notifications(self, limit: int = 50) -> List[TelegramNotificationRecord]:
         """Returns the most recent notifications."""
@@ -53,7 +59,7 @@ class NotificationService:
         target_chat_id = (
             chat_id
             or action.parameters.get("telegram_chat_id")
-            or settings.telegram_chat_id
+            or self.telegram.get_effective_chat_id(action.uid)
         )
 
         # Message formatting based on action type
@@ -188,7 +194,7 @@ class NotificationService:
         target_chat_id = (
             chat_id
             or action.parameters.get("telegram_chat_id")
-            or settings.telegram_chat_id
+            or self.telegram.get_effective_chat_id(action.uid)
         )
 
         text = (

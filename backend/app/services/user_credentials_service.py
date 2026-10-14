@@ -114,44 +114,46 @@ class UserCredentialsService:
                 verified_at = record.last_verified_at
                 try:
                     raw = decrypt_payload(record.encrypted_payload)
-                    for k, v in raw.items():
-                        if v and isinstance(v, str):
-                            masked[k] = mask_secret(v)
+                    if raw.get("use_managed"):
+                        masked = {
+                            "cluster": "LifeOS Managed High-Performance Cluster",
+                            "tenant_partition": user_id,
+                            "source": "managed_cluster",
+                        }
+                    else:
+                        for k, v in raw.items():
+                            if v and isinstance(v, str):
+                                masked[k] = mask_secret(v)
+                        masked["source"] = "custom"
                 except Exception:
                     status_val = "error"
             else:
-                # Check system fallbacks
-                if integration_type == "qdrant" and settings.qdrant_url:
+                # User-owned personal integrations MUST NOT fall back to developer/shared credentials!
+                if integration_type == "lyzr":
+                    # LifeOS managed intelligence backend (multi-agent triad reasoning)
                     status_val = "connected"
                     masked = {
-                        "qdrant_url": settings.qdrant_url[:18] + "...",
-                        "qdrant_api_key": mask_secret(settings.qdrant_api_key),
-                        "qdrant_collection_name": settings.qdrant_collection_name,
-                        "source": "shared_system_pool",
+                        "agent_model": "Lyzr Multi-Agent Triad (Manager, Fact Finder, Data Analyst)",
+                        "manager_agent_id": mask_secret(settings.lyzr_manager_agent_id),
+                        "source": "managed_triad",
                     }
-                elif integration_type == "lyzr" and settings.lyzr_api_key:
-                    status_val = "connected"
-                    masked = {
-                        "lyzr_api_key": mask_secret(settings.lyzr_api_key),
-                        "lyzr_manager_agent_id": mask_secret(settings.lyzr_manager_agent_id),
-                        "source": "shared_system_pool",
-                    }
-                elif integration_type == "telegram" and settings.telegram_bot_token:
-                    status_val = "connected"
-                    masked = {
-                        "telegram_bot_token": mask_secret(settings.telegram_bot_token),
-                        "telegram_bot_username": settings.telegram_bot_username,
-                        "source": "shared_system_pool",
-                    }
-                elif integration_type in ["google_calendar", "google_tasks", "gmail"]:
-                    cred_id = getattr(settings, f"{integration_type}_credential_id", "")
-                    if cred_id:
+                elif integration_type == "telegram":
+                    # Check if user paired via /start in UserDB
+                    from app.models.user import UserDB
+                    user_row = session.execute(select(UserDB).where(UserDB.id == user_id)).scalar_one_or_none()
+                    if user_row and user_row.telegram_chat_id:
                         status_val = "connected"
                         masked = {
-                            "credential_id": mask_secret(cred_id),
-                            "provider": "Composio on Lyzr",
-                            "source": "shared_system_pool",
+                            "telegram_chat_id": mask_secret(user_row.telegram_chat_id),
+                            "telegram_bot_username": settings.telegram_bot_username,
+                            "source": "paired_chat",
                         }
+                    else:
+                        status_val = "unconfigured"
+                else:
+                    # Qdrant, Google Calendar, Google Tasks, Gmail: unconfigured until user configures them!
+                    status_val = "unconfigured"
+                    masked = {}
 
             return IntegrationStatusItem(
                 integration_type=integration_type,
@@ -170,27 +172,40 @@ class UserCredentialsService:
 
     @classmethod
     async def test_integration(cls, user_id: str, integration_type: str) -> Dict[str, Any]:
-        """Test live connectivity for specified integration."""
+        """Test live connectivity strictly for user's configured integration."""
         creds = cls.get_decrypted_credentials(user_id, integration_type)
 
         if integration_type == "telegram":
-            bot_token = creds.get("telegram_bot_token") or settings.telegram_bot_token
-            if not bot_token:
-                return {"success": False, "error": "No Telegram Bot Token provided."}
-            async with httpx.AsyncClient(timeout=10.0) as client:
-                resp = await client.get(f"https://api.telegram.org/bot{bot_token}/getMe")
-                if resp.status_code == 200:
-                    data = resp.json()
-                    if data.get("ok"):
-                        bot_user = data.get("result", {}).get("username", "UnknownBot")
-                        return {"success": True, "message": f"Successfully verified Telegram Bot @{bot_user}!"}
-                return {"success": False, "error": f"Telegram API error: {resp.text}"}
+            bot_token = creds.get("telegram_bot_token")
+            custom_chat = creds.get("telegram_chat_id")
+            if bot_token:
+                async with httpx.AsyncClient(timeout=10.0) as client:
+                    resp = await client.get(f"https://api.telegram.org/bot{bot_token}/getMe")
+                    if resp.status_code == 200:
+                        data = resp.json()
+                        if data.get("ok"):
+                            bot_user = data.get("result", {}).get("username", "UnknownBot")
+                            return {"success": True, "message": f"Successfully verified Telegram Bot @{bot_user}!"}
+                    return {"success": False, "error": f"Telegram API error: {resp.text}"}
+            elif custom_chat:
+                return {"success": True, "message": f"Verified Telegram Chat ID: {mask_secret(custom_chat)}"}
+            else:
+                from app.models.user import UserDB
+                with get_db_session() as session:
+                    u = session.execute(select(UserDB).where(UserDB.id == user_id)).scalar_one_or_none()
+                    if u and u.telegram_chat_id:
+                        return {"success": True, "message": f"Verified paired Telegram Chat ID ({mask_secret(u.telegram_chat_id)})"}
+                return {"success": False, "error": "Telegram is not connected. Please pair your account or configure a custom Bot Token."}
 
         elif integration_type == "qdrant":
-            url = creds.get("qdrant_url") or settings.qdrant_url
-            api_key = creds.get("qdrant_api_key") or settings.qdrant_api_key
+            if creds.get("use_managed"):
+                url = settings.qdrant_url
+                api_key = settings.qdrant_api_key
+            else:
+                url = creds.get("qdrant_url")
+                api_key = creds.get("qdrant_api_key")
             if not url:
-                return {"success": False, "error": "No Qdrant URL provided."}
+                return {"success": False, "error": "No Qdrant cluster configured. Please configure your cluster or select managed Qdrant."}
             try:
                 client = AsyncQdrantClient(url=url, api_key=api_key, timeout=10.0)
                 await client.get_collections()
@@ -225,27 +240,33 @@ class UserCredentialsService:
                 return {"success": False, "error": f"Lyzr connection error: {str(e)}"}
 
         elif integration_type in ["google_calendar", "google_tasks", "gmail"]:
-            cred_id = creds.get(f"{integration_type}_credential_id") or getattr(
-                settings, f"{integration_type}_credential_id", ""
-            )
+            cred_id = creds.get(f"{integration_type}_credential_id") or creds.get("credential_id")
             if not cred_id:
-                return {"success": False, "error": f"Missing credential ID for {integration_type}."}
+                return {
+                    "success": False,
+                    "error": f"No {cls.SUPPORTED_INTEGRATIONS.get(integration_type, integration_type)} credentials connected for your user. Please connect your Google account in Settings.",
+                }
             return {
                 "success": True,
-                "message": f"Verified {cls.SUPPORTED_INTEGRATIONS[integration_type]} integration connection.",
+                "message": f"Verified {cls.SUPPORTED_INTEGRATIONS[integration_type]} integration connection for this account.",
             }
 
         return {"success": False, "error": "Unknown integration type."}
 
     @classmethod
     def get_qdrant_service_for_user(cls, user_id: str):
-        """Resolves user-specific QdrantService if custom cluster is configured, else managed cluster."""
+        """Resolves user-specific QdrantService if custom cluster is configured, else managed cluster with strict tenant isolation."""
         from app.services.qdrant_service import QdrantService
         creds = cls.get_decrypted_credentials(user_id, "qdrant")
-        url = creds.get("qdrant_url") or settings.qdrant_url
-        api_key = creds.get("qdrant_api_key") or settings.qdrant_api_key
-        collection = creds.get("qdrant_collection_name") or settings.qdrant_collection_name
-        return QdrantService(url=url, api_key=api_key, collection_name=collection)
+        if creds.get("use_managed"):
+            return QdrantService(url=settings.qdrant_url, api_key=settings.qdrant_api_key, collection_name=settings.qdrant_collection_name)
+        if creds.get("qdrant_url") and creds.get("qdrant_api_key"):
+            return QdrantService(
+                url=creds["qdrant_url"],
+                api_key=creds["qdrant_api_key"],
+                collection_name=creds.get("qdrant_collection_name") or settings.qdrant_collection_name,
+            )
+        return QdrantService(url=settings.qdrant_url, api_key=settings.qdrant_api_key, collection_name=settings.qdrant_collection_name)
 
     @classmethod
     def get_lyzr_service_for_user(cls, user_id: str):

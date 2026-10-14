@@ -574,10 +574,15 @@ INSTRUCTIONS:
                 workflow.action_ids.append(staged_task.action_id)
                 workflow.actions.append(staged_task)
 
-                # Execute autonomously!
-                task_res = await user_actions.confirm_and_execute(action_id=staged_task.action_id, uid=uid)
-                workflow.action_results.append(task_res)
-                logger.info("Autonomous task %s executed and verified", staged_task.action_id)
+                # Execute autonomously if integration is available!
+                try:
+                    task_res = await user_actions.confirm_and_execute(action_id=staged_task.action_id, uid=uid)
+                    workflow.action_results.append(task_res)
+                    logger.info("Autonomous task %s executed and verified", staged_task.action_id)
+                except Exception as task_err:
+                    logger.warning("Autonomous task %s execution deferred: %s", staged_task.action_id, task_err)
+                    if not workflow.error_details:
+                        workflow.error_details = f"Task creation deferred: {task_err}"
 
             node_ie.state = NodeState.COMPLETED
             node_ie.end_time = datetime.now(timezone.utc).isoformat()
@@ -633,7 +638,21 @@ INSTRUCTIONS:
                     action=staged_draft,
                     workflow_id=workflow_id,
                 )
-                node_ta.summary = f"Approval request dispatched to Telegram for action {staged_draft.action_id}"
+                if telegram_res.get("ok"):
+                    workflow.telegram_delivery = {
+                        "status": "delivered",
+                        "message_id": telegram_res.get("message_id"),
+                        "action_id": staged_draft.action_id,
+                    }
+                    node_ta.summary = f"Approval request dispatched to Telegram for action {staged_draft.action_id}"
+                else:
+                    workflow.telegram_delivery = {
+                        "status": "NEEDS_CONFIGURATION",
+                        "message": "Telegram not linked for this user. Review and approve/reject directly on dashboard.",
+                        "action_id": staged_draft.action_id,
+                    }
+                    node_ta.summary = f"Telegram not linked. Draft {staged_draft.action_id} staged awaiting dashboard approval."
+
                 node_ta.details = {
                     "action_id": staged_draft.action_id,
                     "recipient": recipient,
