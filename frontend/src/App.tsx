@@ -32,6 +32,7 @@ function LifeOSDashboard() {
   const [isAuthModalOpen, setIsAuthModalOpen] = useState<boolean>(false);
   const [authMode, setAuthMode] = useState<'login' | 'signup'>('signup');
   const [isOnboardingOpen, setIsOnboardingOpen] = useState<boolean>(false);
+  const [wizardStep, setWizardStep] = useState<number>(1);
   const [exploreDemoMode, setExploreDemoMode] = useState<boolean>(false);
 
   // Keep uid synced when user changes
@@ -131,7 +132,10 @@ function LifeOSDashboard() {
         user={user}
         onOpenAuth={handleOpenAuth}
         onLogout={logout}
-        onOpenWizard={() => setIsOnboardingOpen(true)}
+        onOpenWizard={() => {
+          setWizardStep(1);
+          setIsOnboardingOpen(true);
+        }}
       />
 
       {/* Missing Production API Config Banner */}
@@ -179,7 +183,10 @@ function LifeOSDashboard() {
 
           {currentTab === 'settings' && (
             <IntegrationsSettingsView
-              onOpenWizard={() => setIsOnboardingOpen(true)}
+              onOpenWizard={(step?: number) => {
+                setWizardStep(step || 1);
+                setIsOnboardingOpen(true);
+              }}
             />
           )}
 
@@ -213,6 +220,7 @@ function LifeOSDashboard() {
       {/* SaaS Onboarding Wizard */}
       <OnboardingWizard
         isOpen={isOnboardingOpen}
+        initialStep={wizardStep}
         onClose={() => setIsOnboardingOpen(false)}
         onFinish={() => {
           setIsOnboardingOpen(false);

@@ -39,8 +39,8 @@ class TelegramService:
     _last_update_id: int = 0
     _state_loaded: bool = False
 
-    def __init__(self):
-        self.bot_token = settings.telegram_bot_token
+    def __init__(self, bot_token: Optional[str] = None):
+        self.bot_token = bot_token or settings.telegram_bot_token
         self.base_url = f"https://api.telegram.org/bot{self.bot_token}"
         self._ensure_state_loaded()
 
@@ -99,14 +99,15 @@ class TelegramService:
         cls._save_state()
 
     def get_effective_chat_id(self, uid: Optional[str] = None) -> Optional[str]:
-        """Resolves target Telegram chat ID: configured > user map > discovered list."""
+        """Resolves target Telegram chat ID: user map > discovered list > configured fallback."""
         self._ensure_state_loaded()
-        if settings.telegram_chat_id:
-            return settings.telegram_chat_id
         if uid and uid in self._user_chat_map:
             return self._user_chat_map[uid]
         if self._discovered_chat_ids:
             return self._discovered_chat_ids[-1]
+        if settings.telegram_chat_id:
+            return settings.telegram_chat_id
+        return None
     async def set_webhook(self, webhook_url: str) -> Dict[str, Any]:
         """Explicitly sets Telegram Bot webhook URL."""
         if not self.bot_token:

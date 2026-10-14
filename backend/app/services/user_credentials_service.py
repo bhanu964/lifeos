@@ -201,10 +201,28 @@ class UserCredentialsService:
 
         elif integration_type == "lyzr":
             api_key = creds.get("lyzr_api_key") or settings.lyzr_api_key
+            agent_id = creds.get("lyzr_manager_agent_id") or settings.lyzr_manager_agent_id
             if not api_key:
                 return {"success": False, "error": "No Lyzr API key provided."}
-            # Fast check
-            return {"success": True, "message": "Lyzr API configuration validated."}
+            headers = {"Content-Type": "application/json", "x-api-key": api_key}
+            try:
+                async with httpx.AsyncClient(timeout=10.0) as client:
+                    if agent_id:
+                        resp = await client.get(f"https://agent-prod.studio.lyzr.ai/v3/agents/{agent_id}", headers=headers)
+                        if resp.status_code == 200:
+                            data = resp.json()
+                            agent_name = data.get("name", "Manager Agent")
+                            return {"success": True, "message": f"Successfully verified Lyzr Agent: '{agent_name}' ({agent_id})!"}
+                        else:
+                            return {"success": False, "error": f"Lyzr Agent verification failed (HTTP {resp.status_code}): {resp.text[:120]}"}
+                    else:
+                        resp = await client.get("https://agent-prod.studio.lyzr.ai/v3/agents/", headers=headers)
+                        if resp.status_code == 200:
+                            return {"success": True, "message": "Successfully verified Lyzr Studio API Key!"}
+                        else:
+                            return {"success": False, "error": f"Lyzr API Key verification failed (HTTP {resp.status_code})"}
+            except Exception as e:
+                return {"success": False, "error": f"Lyzr connection error: {str(e)}"}
 
         elif integration_type in ["google_calendar", "google_tasks", "gmail"]:
             cred_id = creds.get(f"{integration_type}_credential_id") or getattr(
@@ -218,3 +236,34 @@ class UserCredentialsService:
             }
 
         return {"success": False, "error": "Unknown integration type."}
+
+    @classmethod
+    def get_qdrant_service_for_user(cls, user_id: str):
+        """Resolves user-specific QdrantService if custom cluster is configured, else managed cluster."""
+        from app.services.qdrant_service import QdrantService
+        creds = cls.get_decrypted_credentials(user_id, "qdrant")
+        url = creds.get("qdrant_url") or settings.qdrant_url
+        api_key = creds.get("qdrant_api_key") or settings.qdrant_api_key
+        collection = creds.get("qdrant_collection_name") or settings.qdrant_collection_name
+        return QdrantService(url=url, api_key=api_key, collection_name=collection)
+
+    @classmethod
+    def get_lyzr_service_for_user(cls, user_id: str):
+        """Resolves user-specific LyzrService if custom agent/key is configured, else managed agent."""
+        from app.services.lyzr_service import LyzrService
+        creds = cls.get_decrypted_credentials(user_id, "lyzr")
+        api_key = creds.get("lyzr_api_key") or settings.lyzr_api_key
+        agent_id = creds.get("lyzr_manager_agent_id") or settings.lyzr_manager_agent_id
+        return LyzrService(api_key=api_key, agent_id=agent_id, default_user_id=user_id)
+
+    @classmethod
+    def get_telegram_service_for_user(cls, user_id: str):
+        """Resolves user-specific TelegramService if custom bot token is configured, else managed bot."""
+        from app.services.telegram_service import TelegramService
+        creds = cls.get_decrypted_credentials(user_id, "telegram")
+        bot_token = creds.get("telegram_bot_token") or settings.telegram_bot_token
+        tg = TelegramService(bot_token=bot_token)
+        custom_chat_id = creds.get("telegram_chat_id")
+        if custom_chat_id:
+            tg.register_chat_id(custom_chat_id, uid=user_id)
+        return tg

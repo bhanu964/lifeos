@@ -157,3 +157,80 @@ async def test_saas_omi_v2_webhook_tenant_isolation():
         # Call with invalid webhook token
         res_bad_token = await client.post("/omi/v2/invalid_fake_token_12345/conversation", json=omi_payload)
         assert res_bad_token.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_saas_custom_credentials_service_resolution():
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        unique_email = f"custom_creds_{uuid.uuid4().hex[:8]}@example.com"
+        signup_payload = {
+            "email": unique_email,
+            "password": "Password123!",
+            "full_name": "Custom Credentials Tester",
+        }
+        res = await client.post("/api/auth/signup", json=signup_payload)
+        assert res.status_code == 201
+        token = res.json()["access_token"]
+        user_id = res.json()["user"]["id"]
+        headers = {"Authorization": f"Bearer {token}"}
+
+        # 1. Before custom credentials, resolves defaults
+        default_qdrant = UserCredentialsService.get_qdrant_service_for_user(user_id)
+        assert default_qdrant.collection_name == "agentmemory_memories"
+
+        default_lyzr = UserCredentialsService.get_lyzr_service_for_user(user_id)
+        assert default_lyzr.default_user_id == user_id
+
+        # 2. Save custom Qdrant credentials
+        await client.post(
+            "/api/integrations/qdrant",
+            json={
+                "credentials": {
+                    "qdrant_url": "https://custom-cluster.qdrant.tech:6333",
+                    "qdrant_api_key": "custom-qdrant-key-12345",
+                    "qdrant_collection_name": "custom_personal_memories",
+                }
+            },
+            headers=headers,
+        )
+
+        custom_qdrant = UserCredentialsService.get_qdrant_service_for_user(user_id)
+        assert custom_qdrant.collection_name == "custom_personal_memories"
+        assert custom_qdrant.url == "https://custom-cluster.qdrant.tech:6333"
+
+        # 3. Save custom Lyzr credentials with custom manager agent ID
+        custom_agent_id = "agent-custom-998877"
+        await client.post(
+            "/api/integrations/lyzr",
+            json={
+                "credentials": {
+                    "lyzr_api_key": "custom-lyzr-sk-9988",
+                    "lyzr_manager_agent_id": custom_agent_id,
+                }
+            },
+            headers=headers,
+        )
+
+        custom_lyzr = UserCredentialsService.get_lyzr_service_for_user(user_id)
+        assert custom_lyzr.agent_id == custom_agent_id
+        assert custom_lyzr.api_key == "custom-lyzr-sk-9988"
+
+        # 4. Save custom Telegram bot credentials with custom chat ID
+        custom_chat = "998877665"
+        await client.post(
+            "/api/integrations/telegram",
+            json={
+                "credentials": {
+                    "telegram_bot_token": "123456789:ABCdefGhIJKlmNoPQRsTUVwxyZ_custom",
+                    "telegram_bot_username": "CustomUserBot",
+                    "telegram_chat_id": custom_chat,
+                }
+            },
+            headers=headers,
+        )
+
+        custom_tg = UserCredentialsService.get_telegram_service_for_user(user_id)
+        assert custom_tg.bot_token == "123456789:ABCdefGhIJKlmNoPQRsTUVwxyZ_custom"
+        assert custom_tg.get_effective_chat_id(user_id) == custom_chat
+

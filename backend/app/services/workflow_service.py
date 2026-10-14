@@ -179,6 +179,39 @@ class WorkflowService:
         raw = f"{uid}:{conv_id}:{norm}"
         return hashlib.sha256(raw.encode("utf-8")).hexdigest()
 
+    def _get_user_services(self, uid: str):
+        """Resolves user-specific services or falls back to system defaults."""
+        user_memory = self.memory
+        user_lyzr = self.lyzr
+        user_telegram = self.telegram
+        user_actions = self.actions
+        try:
+            from app.services.user_credentials_service import UserCredentialsService
+            creds_qdrant = UserCredentialsService.get_decrypted_credentials(uid, "qdrant")
+            if creds_qdrant and any(creds_qdrant.values()):
+                user_qdrant = UserCredentialsService.get_qdrant_service_for_user(uid)
+                user_memory = MemoryService(qdrant_service=user_qdrant)
+
+            creds_lyzr = UserCredentialsService.get_decrypted_credentials(uid, "lyzr")
+            if creds_lyzr and any(creds_lyzr.values()):
+                user_lyzr = UserCredentialsService.get_lyzr_service_for_user(uid)
+
+            creds_tg = UserCredentialsService.get_decrypted_credentials(uid, "telegram")
+            if creds_tg and any(creds_tg.values()):
+                user_telegram = UserCredentialsService.get_telegram_service_for_user(uid)
+
+            if user_lyzr is not self.lyzr or user_memory is not self.memory:
+                user_notifications = NotificationService(lyzr_service=user_lyzr, memory_service=user_memory)
+                user_actions = ActionService(
+                    lyzr_service=user_lyzr,
+                    memory_service=user_memory,
+                    notification_service=user_notifications,
+                )
+        except Exception as err:
+            logger.debug("Using default services for uid %s: %s", uid, err)
+
+        return user_memory, user_lyzr, user_telegram, user_actions
+
     def subscribe(self) -> asyncio.Queue:
         """Subscribe to real-time workflow events via SSE."""
         q: asyncio.Queue = asyncio.Queue()
@@ -322,6 +355,7 @@ class WorkflowService:
         uid = workflow.user_id
         transcript = workflow.transcript
         logger.info("Starting autonomous pipeline for workflow %s", workflow_id)
+        user_memory, user_lyzr, user_telegram, user_actions = self._get_user_services(uid)
 
         try:
             # -------------------------------------------------------------
@@ -337,7 +371,7 @@ class WorkflowService:
             retrieved = []
             try:
                 retrieved = await asyncio.wait_for(
-                    self.memory.search_memories(
+                    user_memory.search_memories(
                         uid=uid,
                         query=transcript,
                         limit=5,
@@ -374,7 +408,7 @@ class WorkflowService:
             node_mp.start_time = datetime.now(timezone.utc).isoformat()
             await self.publish_event("stage_changed", workflow, {"node": "manager_planning"})
 
-            memory_ctx = self.memory.format_memories_for_prompt(retrieved)
+            memory_ctx = user_memory.format_memories_for_prompt(retrieved)
             manager_prompt = f"""Analyze this completed voice conversation and synthesize a structured action plan adhering strictly to LifeOS operating principles (UNDERSTAND -> PLAN -> EXECUTE -> VERIFY -> REPORT).
 
 SPOKEN VOICE CONVERSATION:
@@ -391,11 +425,11 @@ INSTRUCTIONS:
             t0 = datetime.now(timezone.utc)
             plan_text = ""
             try:
-                lyzr_resp = await self.lyzr.chat(
+                lyzr_resp = await user_lyzr.chat(
                     message=manager_prompt,
                     user_id=uid,
                     session_id=f"lifeos-{workflow_id}",
-                    agent_id=settings.lyzr_manager_agent_id,
+                    agent_id=user_lyzr.agent_id or settings.lyzr_manager_agent_id,
                     instructions=LIFEOS_MASTER_SYSTEM_PROMPT,
                 )
                 plan_text = lyzr_resp.get("response", "").strip()
@@ -491,7 +525,7 @@ INSTRUCTIONS:
                 target_d, target_d_str = resolve_date_from_text(transcript, tz_name="Asia/Kolkata")
                 time_min, time_max = get_day_rfc3339_boundaries(target_d, tz_name="Asia/Kolkata")
                 cal_title = f"Inspect Google Calendar ({target_d_str})"
-                staged_cal = await self.actions.stage_action(
+                staged_cal = await user_actions.stage_action(
                     uid=uid,
                     action_type=ActionType.READ_CALENDAR,
                     title=cal_title,
@@ -502,14 +536,14 @@ INSTRUCTIONS:
                         "time_min": time_min,
                         "time_max": time_max,
                         "workflow_id": workflow_id,
-                        "telegram_chat_id": self.telegram.get_effective_chat_id(uid),
+                        "telegram_chat_id": user_telegram.get_effective_chat_id(uid),
                     },
                 )
                 workflow.action_ids.append(staged_cal.action_id)
                 workflow.actions.append(staged_cal)
 
                 try:
-                    cal_res = await self.actions.confirm_and_execute(action_id=staged_cal.action_id, uid=uid)
+                    cal_res = await user_actions.confirm_and_execute(action_id=staged_cal.action_id, uid=uid)
                     workflow.action_results.append(cal_res)
                     if cal_res.execution_result:
                         workflow.calendar_result = cal_res.execution_result
@@ -525,7 +559,7 @@ INSTRUCTIONS:
             if "hackathon" in transcript.lower() or has_task:
                 # Create Task automatically (Autonomous low-risk!)
                 now = datetime.now(timezone.utc)
-                staged_task = await self.actions.stage_action(
+                staged_task = await user_actions.stage_action(
                     uid=uid,
                     action_type=ActionType.CREATE_TASK,
                     title=task_title,
@@ -541,7 +575,7 @@ INSTRUCTIONS:
                 workflow.actions.append(staged_task)
 
                 # Execute autonomously!
-                task_res = await self.actions.confirm_and_execute(action_id=staged_task.action_id, uid=uid)
+                task_res = await user_actions.confirm_and_execute(action_id=staged_task.action_id, uid=uid)
                 workflow.action_results.append(task_res)
                 logger.info("Autonomous task %s executed and verified", staged_task.action_id)
 
@@ -578,7 +612,7 @@ INSTRUCTIONS:
                     f"Best regards,\nLifeOS Operator"
                 )
 
-                staged_draft = await self.actions.stage_action(
+                staged_draft = await user_actions.stage_action(
                     uid=uid,
                     action_type=ActionType.CREATE_GMAIL_DRAFT,
                     title=f"Draft email to {recipient}: {draft_subject}",
@@ -595,7 +629,7 @@ INSTRUCTIONS:
                 workflow.actions.append(staged_draft)
 
                 # Send approval request to Telegram!
-                telegram_res = await self.telegram.send_approval_request(
+                telegram_res = await user_telegram.send_approval_request(
                     action=staged_draft,
                     workflow_id=workflow_id,
                 )
@@ -718,7 +752,8 @@ INSTRUCTIONS:
                 f"Spoken Request: {workflow.transcript}\n"
                 f"Actions Executed: {', '.join([r.message for r in workflow.action_results])}"
             )
-            stored_mem = await self.memory.store_memory(
+            user_memory, _, _, _ = self._get_user_services(workflow.user_id)
+            stored_mem = await user_memory.store_memory(
                 uid=workflow.user_id,
                 content=mem_content,
                 metadata={
@@ -776,6 +811,8 @@ INSTRUCTIONS:
 
         logger.info("Telegram approval received for action %s in workflow %s", action_id, workflow_id)
         try:
+            user_memory, user_lyzr, user_telegram, user_actions = self._get_user_services(workflow.user_id)
+
             # 1. Update Node 7: Telegram Approval
             node_ta = workflow.nodes["telegram_approval"]
             node_ta.state = NodeState.COMPLETED
@@ -784,15 +821,15 @@ INSTRUCTIONS:
             await self.publish_event("node_updated", workflow, {"node": "telegram_approval", "status": "approved"})
 
             # 2. Execute Action (CREATE_GMAIL_DRAFT)
-            exec_res = await self.actions.confirm_and_execute(action_id=action_id, uid=workflow.user_id)
+            exec_res = await user_actions.confirm_and_execute(action_id=action_id, uid=workflow.user_id)
             workflow.action_results.append(exec_res)
             for act in workflow.actions:
                 if act.action_id == action_id:
                     act.status = ActionStatus.COMPLETED
 
             # 3. Notify user via Telegram of success
-            await self.telegram.send_message(
-                chat_id=chat_id or self.telegram.get_effective_chat_id(workflow.user_id),
+            await user_telegram.send_message(
+                chat_id=chat_id or user_telegram.get_effective_chat_id(workflow.user_id),
                 text=(
                     f"✅ *Gmail Draft Created & Verified!*\n\n"
                     f"Action: `{action_id}`\n"
@@ -808,8 +845,10 @@ INSTRUCTIONS:
             logger.error("Failed to execute approved action %s: %s", action_id, exc, exc_info=True)
             workflow.status = WorkflowStatus.FAILED
             workflow.error_details = str(exc)
-            await self.telegram.send_message(
-                chat_id=chat_id or self.telegram.get_effective_chat_id(workflow.user_id),
+            target_chat = chat_id or (user_telegram.get_effective_chat_id(workflow.user_id) if 'user_telegram' in locals() else self.telegram.get_effective_chat_id(workflow.user_id))
+            tg_svc = user_telegram if 'user_telegram' in locals() else self.telegram
+            await tg_svc.send_message(
+                chat_id=target_chat,
                 text=f"⚠️ *Execution Failed:*\n{str(exc)}",
             )
             await self.publish_event("workflow_failed", workflow, {"error": str(exc)})
@@ -825,8 +864,10 @@ INSTRUCTIONS:
             return
 
         logger.info("Telegram rejection received for action %s in workflow %s", action_id, workflow.workflow_id)
+        _, _, user_telegram, user_actions = self._get_user_services(workflow.user_id)
+
         try:
-            self.actions.reject_action(action_id=action_id, uid=workflow.user_id)
+            user_actions.reject_action(action_id=action_id, uid=workflow.user_id)
         except Exception as act_err:
             logger.debug("Action already rejected or not in staged state: %s", act_err)
 
@@ -872,9 +913,9 @@ INSTRUCTIONS:
         await self.publish_event("workflow_updated", workflow, {"action_id": action_id})
 
         try:
-            target_chat = chat_id or self.telegram.get_effective_chat_id(workflow.user_id)
+            target_chat = chat_id or user_telegram.get_effective_chat_id(workflow.user_id)
             if target_chat:
-                await self.telegram.send_message(
+                await user_telegram.send_message(
                     chat_id=target_chat,
                     text=f"❌ Action `{action_id}` was rejected and canceled.",
                 )
@@ -888,7 +929,8 @@ INSTRUCTIONS:
             return
 
         logger.info("Resuming workflow %s with clarification: %s", workflow_id, user_reply)
-        action = self.actions.get_action(action_id, workflow.user_id)
+        _, _, _, user_actions = self._get_user_services(workflow.user_id)
+        action = user_actions.get_action(action_id, workflow.user_id)
         if action:
             # If recipient was missing and reply looks like email
             if "@" in user_reply:

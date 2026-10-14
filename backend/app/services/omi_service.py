@@ -137,8 +137,15 @@ class OmiService:
                 )
             )
 
+        user_qdrant = self.qdrant
+        try:
+            from app.services.user_credentials_service import UserCredentialsService
+            user_qdrant = UserCredentialsService.get_qdrant_service_for_user(uid)
+        except Exception:
+            pass
+
         if memories_to_store:
-            await self.qdrant.store_memories(memories_to_store)
+            await user_qdrant.store_memories(memories_to_store)
 
         logger.info(
             "Successfully ingested %d memories from Omi conversation %s for user %s",
@@ -219,8 +226,15 @@ class OmiService:
                 )
             )
 
+        user_qdrant = self.qdrant
+        try:
+            from app.services.user_credentials_service import UserCredentialsService
+            user_qdrant = UserCredentialsService.get_qdrant_service_for_user(uid)
+        except Exception:
+            pass
+
         if memories_to_store:
-            await self.qdrant.store_memories(memories_to_store)
+            await user_qdrant.store_memories(memories_to_store)
 
         logger.info(
             "Ingested %d real-time segments for session %s, user %s",
