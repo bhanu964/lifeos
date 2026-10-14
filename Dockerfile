@@ -14,7 +14,12 @@ WORKDIR /app
 # Set environment variables
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
-    PORT=8000
+    PORT=8000 \
+    OMP_NUM_THREADS=1 \
+    MKL_NUM_THREADS=1 \
+    OPENBLAS_NUM_THREADS=1 \
+    VECLIB_MAXIMUM_THREADS=1 \
+    NUMEXPR_NUM_THREADS=1
 
 # Install system dependencies (build tools, libffi, openssl for cryptography)
 RUN apt-get update && apt-get install -y --no-install-recommends \

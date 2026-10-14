@@ -489,8 +489,8 @@ INSTRUCTIONS:
 
             # Specialist 2: Data Analyst
             has_explicit_draft = is_explicit_email_draft_intent(transcript)
-            is_reading_emails = is_read_emails_intent(transcript)
-            is_sched_deadlines = is_calendar_schedule_intent(transcript)
+            is_reading_emails = is_read_emails_intent(transcript, plan_summary=workflow.plan_summary)
+            is_sched_deadlines = is_calendar_schedule_intent(transcript, plan_summary=workflow.plan_summary)
             is_inspect_cal = is_calendar_inspect_intent(transcript)
             has_task = any(k in transcript.lower() for k in ["task", "submission", "prepare", "finish", "todo", "agreed"])
             # If merely checking emails without explicit task words, do not invent tasks
@@ -905,6 +905,7 @@ INSTRUCTIONS:
                             transcript=workflow.transcript,
                             calendar_result=workflow.calendar_result,
                             action_results=workflow.action_results,
+                            plan_summary=workflow.plan_summary,
                         )
                         try:
                             tg_res = await user_telegram.send_message(chat_id=user_tg_chat, text=tg_text)
@@ -946,23 +947,32 @@ INSTRUCTIONS:
                 f"Actions Executed: {', '.join([r.message for r in workflow.action_results])}"
             )
             user_memory, _, _, _ = self._get_user_services(workflow.user_id)
-            stored_mem = await user_memory.store_memory(
-                uid=workflow.user_id,
-                content=mem_content,
-                metadata={
-                    "source": "lifeos_voice_workflow",
-                    "workflow_id": workflow.workflow_id,
-                    "conversation_id": workflow.conversation_id,
-                    "action_count": len(workflow.action_results),
-                    "status": "completed",
-                    "timestamp": datetime.now(timezone.utc).isoformat(),
-                },
-            )
-            workflow.saved_memories.append(stored_mem.model_dump())
+            try:
+                stored_mem = await asyncio.wait_for(
+                    user_memory.store_memory(
+                        uid=workflow.user_id,
+                        content=mem_content,
+                        metadata={
+                            "source": "lifeos_voice_workflow",
+                            "workflow_id": workflow.workflow_id,
+                            "conversation_id": workflow.conversation_id,
+                            "action_count": len(workflow.action_results),
+                            "status": "completed",
+                            "timestamp": datetime.now(timezone.utc).isoformat(),
+                        },
+                    ),
+                    timeout=5.0,
+                )
+                workflow.saved_memories.append(stored_mem.model_dump())
+                node_mu.summary = f"Recorded verified completion into Qdrant memory (ID: {stored_mem.id})"
+                node_mu.details = {"memory_id": stored_mem.id}
+            except Exception as mem_err:
+                logger.warning("Workflow %s Stage 9 Qdrant memory store timed out or failed (non-critical): %s", workflow.workflow_id, mem_err)
+                node_mu.summary = f"Memory commit bypassed: {str(mem_err)[:80]}"
+                node_mu.details = {"warning": str(mem_err)}
+
             node_mu.state = NodeState.COMPLETED
             node_mu.end_time = datetime.now(timezone.utc).isoformat()
-            node_mu.summary = f"Recorded verified completion into Qdrant memory (ID: {stored_mem.id})"
-            node_mu.details = {"memory_id": stored_mem.id}
             await self.publish_event("node_updated", workflow, {"node": "memory_updated"})
 
             # -------------------------------------------------------------

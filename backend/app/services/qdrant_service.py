@@ -19,6 +19,8 @@ class QdrantService:
     memory storage, semantic search, user-scoped retrieval, and deletion.
     """
 
+    _shared_embedding_model: Optional[TextEmbedding] = None
+
     def __init__(
         self,
         url: Optional[str] = None,
@@ -37,24 +39,31 @@ class QdrantService:
 
     @property
     def client(self) -> AsyncQdrantClient:
-        """Lazily initialize the AsyncQdrantClient."""
+        """Lazily initialize the AsyncQdrantClient with strict timeout."""
         if self._client is None:
             if not self.url:
                 raise ValueError("QDRANT_URL is not configured.")
             self._client = AsyncQdrantClient(
                 url=self.url,
                 api_key=self.api_key or None,
-                timeout=30.0,
+                timeout=10.0,
             )
         return self._client
 
     @property
     def embedding_model(self) -> TextEmbedding:
-        """Lazily initialize the FastEmbed TextEmbedding model."""
-        if self._embedding_model is None:
-            logger.info("Initializing FastEmbed model: %s", self.embedding_model_name)
-            self._embedding_model = TextEmbedding(model_name=self.embedding_model_name)
-        return self._embedding_model
+        """Lazily initialize the shared FastEmbed TextEmbedding model singleton."""
+        if self._embedding_model is not None:
+            return self._embedding_model
+        if QdrantService._shared_embedding_model is None:
+            import gc
+            logger.info("Initializing shared FastEmbed model (threads=1 for memory optimization): %s", self.embedding_model_name)
+            QdrantService._shared_embedding_model = TextEmbedding(
+                model_name=self.embedding_model_name,
+                threads=1,
+            )
+            gc.collect()
+        return QdrantService._shared_embedding_model
 
     async def verify_connection(self) -> bool:
         """Verify network and authentication connectivity to Qdrant Cloud."""

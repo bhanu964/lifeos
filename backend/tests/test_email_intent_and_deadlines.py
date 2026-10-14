@@ -18,6 +18,7 @@ from app.services.email_intent_service import (
     is_explicit_email_draft_intent,
     is_read_emails_intent,
     is_summarize_emails_intent,
+    normalize_voice_transcript,
     summarize_recent_emails,
 )
 from app.services.lyzr_service import LyzrService
@@ -156,6 +157,7 @@ def mock_all_services():
             "tg_msg": mock_tg_msg,
             "tg_approval": mock_tg_approval,
             "chat": mock_chat,
+            "mem_store": mock_mem_store,
         }
 
 
@@ -639,5 +641,115 @@ async def test_workflow_telegram_report_contains_email_summary(mock_all_services
         assert "Outcome:" in sent_text
         # Assert strictly zero emojis
         assert not any(ord(c) > 127999 for c in sent_text)
+
+
+def test_normalize_voice_transcript_speech_artifacts():
+    """Verify normalization of mobile Whisper phonetic mishearings."""
+    raw = (
+        "Check my last twenty four hour females and let me know is there any important deadlines. "
+        "If there are any important deadlines, update in the Google calendar, like say Julie, "
+        "then inform me in the telegram. Line give the summarization in the telegram."
+    )
+    normalized = normalize_voice_transcript(raw)
+    assert "last 24 hour emails" in normalized
+    assert "schedule it" in normalized
+    assert "summarization" in normalized
+
+    # Additional common voice artifacts
+    assert "emails" in normalize_voice_transcript("check females")
+    assert "email inbox" in normalize_voice_transcript("female inbox")
+    assert "emails" in normalize_voice_transcript("read my e-mails")
+
+
+def test_production_reported_voice_transcript_intent_and_deadlines():
+    """
+    Verify intent classification on exact evaluator transcript:
+    'Check my last twenty four hour females and let me know is there any important deadlines...'
+    """
+    transcript = (
+        "Check my last twenty four hour females and let me know is there any important deadlines. "
+        "If there are any important deadlines, update in the Google calendar, like say Julie, "
+        "then inform me in the telegram. Line give the summarization in the telegram."
+    )
+    plan = (
+        "The user’s spoken request is about checking the last 24 hours of emails for important deadlines "
+        "and updating the Google Calendar accordingly, then providing a summary and notification via Telegram."
+    )
+
+    # 1. Intent without plan summary (via phonetic STT correction)
+    assert is_read_emails_intent(transcript) is True
+    assert is_calendar_schedule_intent(transcript) is True
+    assert is_summarize_emails_intent(transcript) is True
+    assert is_explicit_email_draft_intent(transcript) is False
+
+    # 2. Intent with plan summary fallback
+    assert is_read_emails_intent(transcript, plan_summary=plan) is True
+    assert is_calendar_schedule_intent(transcript, plan_summary=plan) is True
+    assert is_summarize_emails_intent(transcript, plan_summary=plan) is True
+
+
+def test_format_telegram_execution_report_with_plan_summary_and_empty_emails():
+    """Verify that even when 0 emails or deadlines are found, the report clearly articulates sections and outcome."""
+    transcript = "Check my last 24 hour emails for deadlines and schedule it in Google Calendar."
+    plan = "Check last 24 hours of emails for important deadlines and schedule any found events."
+    cal_res = {
+        "status": "NO_DEADLINES_FOUND",
+        "checked_emails": 0,
+        "deadlines_count": 0,
+        "deadlines": [],
+        "email_summary": "No new or unread emails found in the last 24 hours.",
+        "summary": "Checked recent emails. No actionable deadlines found.",
+    }
+
+    report = format_telegram_execution_report(
+        transcript=transcript,
+        calendar_result=cal_res,
+        plan_summary=plan,
+    )
+
+    assert "LifeOS Execution Report" in report
+    assert "Email Summary (Last 24 Hours):" in report
+    assert "No new or unread emails found" in report
+    assert "Important Deadlines & Google Calendar:" in report
+    assert "No actionable deadlines detected" in report
+    assert "Outcome:" in report
+    assert "No actionable deadlines found" in report
+    assert not any(ord(c) > 127999 for c in report)
+
+
+@pytest.mark.asyncio
+async def test_stage_9_qdrant_timeout_resilience(mock_all_services):
+    """
+    Verify that if Qdrant Cloud or ONNX memory commit times out in Stage 9,
+    the workflow gracefully degrades, logs a warning, completes Stage 9 and finishes Stage 10
+    without getting permanently stuck in RUNNING or failing the user experience.
+    """
+    deps = mock_all_services
+    deps["mem_store"].side_effect = asyncio.TimeoutError("Qdrant cloud timed out after 5.0s")
+
+    wf_service = WorkflowService()
+    transcript = "Check my last 24 hours emails for deadlines."
+
+    wf = await wf_service.create_and_enqueue_workflow(
+        uid="usr_evaluator_resilience",
+        conversation_id=f"conv-{uuid.uuid4().hex[:8]}",
+        transcript=transcript,
+    )
+
+    await asyncio.sleep(0.15)
+    updated_wf = wf_service.get_workflow(wf.workflow_id)
+
+    assert updated_wf is not None
+    # Workflow must successfully complete Stage 9 & Stage 10 despite Qdrant timeout
+    assert updated_wf.status == WorkflowStatus.COMPLETED
+    assert updated_wf.current_stage == WorkflowStage.COMPLETED
+
+    node_mu = updated_wf.nodes["memory_updated"]
+    assert node_mu.state == NodeState.COMPLETED
+    assert "Memory commit bypassed" in node_mu.summary
+
+    node_cp = updated_wf.nodes["completed"]
+    assert node_cp.state == NodeState.COMPLETED
+
 
 

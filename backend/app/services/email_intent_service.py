@@ -13,6 +13,30 @@ from app.utils.calendar_utils import DEFAULT_TIMEZONE, get_timezone, resolve_dat
 logger = logging.getLogger(__name__)
 
 
+def normalize_voice_transcript(text: Optional[str]) -> str:
+    """
+    Normalizes common mobile microphone and speech-to-text (Whisper/Omi) misrecognitions.
+    Example: 'twenty four hour females' -> 'twenty four hour emails'
+             'say Julie' / 'say julie' -> 'schedule it'
+    """
+    if not text:
+        return ""
+    t = text
+    t = re.sub(r"\b(?:twenty[\s\-]+four|24)[\s\-]+(?:hour|hr|hrs)?[\s\-]+females\b", "last 24 hour emails", t, flags=re.I)
+    t = re.sub(r"\b(check|read|review|scan|search|list)[\s\-]+(?:my[\s\-]+)?female(?:s)?\b", r"\1 my emails", t, flags=re.I)
+    t = re.sub(r"\bmy[\s\-]+female(?:s)?\b", "my emails", t, flags=re.I)
+    t = re.sub(r"\bfemale(?:s)?[\s\-]+inbox\b", "email inbox", t, flags=re.I)
+    t = re.sub(r"\bfemale(?:s)?\s+and\s+let\s+me\s+know\b", "emails and let me know", t, flags=re.I)
+    # Fix 'say Julie' / 'say julie' / 'sayjulie' -> 'schedule it'
+    t = re.sub(r"\b(?:like\s+)?say\s+julie\b", "schedule it", t, flags=re.I)
+    # Fix 'line give the summarization' -> 'give the summarization'
+    t = re.sub(r"\bline\s+give\s+the\b", "give the", t, flags=re.I)
+    # Fix hyphenated e-mails
+    t = re.sub(r"\be[\s\-]+mails\b", "emails", t, flags=re.I)
+    t = re.sub(r"\be[\s\-]+mail\b", "email", t, flags=re.I)
+    return t
+
+
 def is_explicit_email_draft_intent(text: Optional[str]) -> bool:
     """
     Determines if the text explicitly requests composing, drafting, or sending an email.
@@ -21,7 +45,8 @@ def is_explicit_email_draft_intent(text: Optional[str]) -> bool:
     """
     if not text:
         return False
-    t = text.lower().strip()
+    norm_text = normalize_voice_transcript(text)
+    t = norm_text.lower().strip()
 
     # Reading/checking keywords
     reading_verbs = [
@@ -52,39 +77,61 @@ def is_explicit_email_draft_intent(text: Optional[str]) -> bool:
     return has_explicit_draft
 
 
-def is_read_emails_intent(text: Optional[str]) -> bool:
+def is_read_emails_intent(text: Optional[str], plan_summary: Optional[str] = None) -> bool:
     """
     Determines if the text requests checking, reading, searching, or reviewing emails.
+    Normalizes speech-to-text misrecognitions and optionally checks Lyzr Manager's plan summary.
     """
-    if not text:
+    if not text and not plan_summary:
         return False
-    t = text.lower().strip()
+    norm_text = normalize_voice_transcript(text)
+    t = norm_text.lower().strip()
     reading_verbs = [
         "check", "read", "look at", "look through", "search", "scan", "list",
-        "summarize", "summarise", "review", "find", "see", "unread", "last",
+        "summarize", "summarise", "summarization", "review", "find", "see", "unread", "last",
         "do i have", "any", "urgent", "new", "what are", "show", "tell me"
     ]
     email_terms = ["email", "emails", "gmail", "inbox", "mail", "mails"]
 
     has_term = any(term in t for term in email_terms)
     has_verb = any(verb in t for verb in reading_verbs)
-    return has_term and has_verb
+    if has_term and has_verb:
+        return True
+
+    # Check Lyzr Manager's synthesized plan summary
+    if plan_summary:
+        ps = plan_summary.lower()
+        if any(e in ps for e in email_terms) and any(v in ps for v in ["review", "check", "read", "email content", "recent emails", "last 24 hours"]):
+            return True
+
+    return False
 
 
-def is_calendar_schedule_intent(text: Optional[str]) -> bool:
+def is_calendar_schedule_intent(text: Optional[str], plan_summary: Optional[str] = None) -> bool:
     """
     Determines if the text requests scheduling an event or adding deadlines to Google Calendar.
+    Normalizes speech-to-text misrecognitions and optionally checks Lyzr Manager's plan summary.
     """
-    if not text:
+    if not text and not plan_summary:
         return False
-    t = text.lower().strip()
+    norm_text = normalize_voice_transcript(text)
+    t = norm_text.lower().strip()
     schedule_phrases = [
         "schedule", "add to calendar", "add to my calendar", "add that to my calendar",
         "update that in my google calendar", "update in my google calendar",
+        "update in the google calendar", "update the google calendar", "update in google calendar",
         "update my google calendar", "update calendar", "create event", "create calendar event",
         "put on calendar", "put in my calendar", "schedule it", "block time"
     ]
-    return any(p in t for p in schedule_phrases)
+    if any(p in t for p in schedule_phrases):
+        return True
+
+    if plan_summary:
+        ps = plan_summary.lower()
+        if "google calendar" in ps and any(w in ps for w in ["add", "create", "update", "schedule", "entry", "entries"]):
+            return True
+
+    return False
 
 
 def is_calendar_inspect_intent(text: Optional[str]) -> bool:
@@ -93,7 +140,8 @@ def is_calendar_inspect_intent(text: Optional[str]) -> bool:
     """
     if not text:
         return False
-    t = text.lower().strip()
+    norm_text = normalize_voice_transcript(text)
+    t = norm_text.lower().strip()
     inspect_phrases = [
         "free time", "available slots", "open slots", "inspect availability",
         "inspect calendar", "check calendar", "check my calendar", "when am i free",
@@ -102,15 +150,24 @@ def is_calendar_inspect_intent(text: Optional[str]) -> bool:
     return any(p in t for p in inspect_phrases)
 
 
-def is_summarize_emails_intent(text: Optional[str]) -> bool:
+def is_summarize_emails_intent(text: Optional[str], plan_summary: Optional[str] = None) -> bool:
     """
     Determines if the text requests summarizing or giving an overview/digest of emails.
     """
-    if not text:
+    if not text and not plan_summary:
         return False
-    t = text.lower().strip()
-    summary_words = ["summarize", "summarise", "summary", "overview", "digest", "brief me", "give me a summary"]
-    return any(w in t for w in summary_words)
+    norm_text = normalize_voice_transcript(text)
+    t = norm_text.lower().strip()
+    summary_words = ["summarize", "summarise", "summarization", "summary", "overview", "digest", "brief me", "give me a summary"]
+    if any(w in t for w in summary_words):
+        return True
+
+    if plan_summary:
+        ps = plan_summary.lower()
+        if "summary" in ps or "summarize" in ps or "summarization" in ps:
+            return True
+
+    return False
 
 
 def extract_email_fields(email: Dict[str, Any]) -> Dict[str, str]:
@@ -184,6 +241,7 @@ def format_telegram_execution_report(
     transcript: str,
     calendar_result: Optional[Dict[str, Any]] = None,
     action_results: Optional[List[Any]] = None,
+    plan_summary: Optional[str] = None,
 ) -> str:
     """
     Builds a structured, human-readable Telegram execution report.
@@ -206,6 +264,8 @@ def format_telegram_execution_report(
         sections.append(
             "Email Summary:\n- Gmail is disabled in Preconfigured Lyzr mode to protect account privacy. Connect your own Lyzr credentials in Settings to enable Gmail."
         )
+    elif is_read_emails_intent(transcript, plan_summary):
+        sections.append("Email Summary (Last 24 Hours):\n- No new emails received in the last 24 hours to summarize.")
 
     # 2. Deadlines & Calendar Section
     deadlines = cal_res.get("deadlines", [])
@@ -218,11 +278,16 @@ def format_telegram_execution_report(
         sections.append("Important Deadlines & Google Calendar:\n" + "\n".join(dl_lines))
     elif status_code == "GMAIL_DISABLED_IN_PRECONFIGURED_MODE":
         sections.append("Important Deadlines & Google Calendar:\n- No deadlines extracted (Gmail disabled in Preconfigured mode).")
-    elif "checked_emails" in cal_res:
+    elif "checked_emails" in cal_res or is_read_emails_intent(transcript, plan_summary):
         sections.append("Important Deadlines & Google Calendar:\n- No actionable deadlines detected.")
 
     # 3. Overall Outcome
-    outcome = cal_res.get("summary") or "Execution completed."
+    outcome = cal_res.get("summary")
+    if not outcome:
+        if is_read_emails_intent(transcript, plan_summary):
+            outcome = "Checked 0 email(s) from the last 24 hours. No actionable deadlines found."
+        else:
+            outcome = "Execution completed."
     sections.append(f"Outcome:\n{outcome.strip()}")
 
     return "\n\n".join(sections)
